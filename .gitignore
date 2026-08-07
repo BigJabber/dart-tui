@@ -1,0 +1,15 @@
+# Build output
+/dist/
+/darts
+/darts.exe
+
+# Local databases
+*.db
+*.db-wal
+*.db-shm
+
+# Editors
+.idea/
+.vscode/
+*.swp
+.DS_Store

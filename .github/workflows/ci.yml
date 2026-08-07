@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.24"
+
+jobs:
+  test:
+    name: Test
+    # The scoring engines are pure Go, but the application is aimed at Windows
+    # desktops, so the tests run there too rather than only on Linux.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          unformatted="$(gofmt -l cmd internal)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        env:
+          CGO_ENABLED: "0"
+        run: go test -count=1 ./...
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+          - goos: windows
+            goarch: arm64
+            ext: .exe
+          - goos: linux
+            goarch: amd64
+            ext: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # so git describe can find the tags for the version
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build
+        env:
+          # No CGO anywhere: the SQLite driver is pure Go, so cross-compiling to
+          # Windows needs no C toolchain and the result needs no runtime DLLs.
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          version="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+          mkdir -p dist
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${version}" \
+            -o "dist/darts-${GOOS}-${GOARCH}${{ matrix.ext }}" \
+            ./cmd/darts
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: darts-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  smoke:
+    name: Smoke test on Windows
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - name: Download the Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: darts-windows-amd64
+
+      # Proves the executable runs on a clean Windows runner with no Go, no
+      # SQLite and no build tools installed, and that it can create its database.
+      - name: Run the executable
+        shell: pwsh
+        run: |
+          ./darts-windows-amd64.exe -version
+          ./darts-windows-amd64.exe -where
+          ./darts-windows-amd64.exe -db "$env:TEMP\smoke.db" -where
+          if (-not (Test-Path "$env:LOCALAPPDATA\DartsTUI")) {
+            throw "the application data directory was not created"
+          }
