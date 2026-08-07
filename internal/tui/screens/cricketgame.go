@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BigJabber/dart-tui/internal/app"
+	"github.com/BigJabber/dart-tui/internal/domain/cricket"
+	"github.com/BigJabber/dart-tui/internal/domain/darts"
+	"github.com/BigJabber/dart-tui/internal/tui/components"
+	"github.com/BigJabber/dart-tui/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/pourmoi/dart-tui/internal/app"
-	"github.com/pourmoi/dart-tui/internal/domain/cricket"
-	"github.com/pourmoi/dart-tui/internal/domain/darts"
-	"github.com/pourmoi/dart-tui/internal/tui/components"
-	"github.com/pourmoi/dart-tui/internal/tui/styles"
 )
 
 // cricketPhase is what the cricket screen is waiting for.
@@ -486,38 +486,113 @@ func (s *CricketGame) updateComplete(key tea.KeyMsg) (Screen, tea.Cmd) {
 
 // -------------------------------------------------------------------- view
 
-// View renders the match state and the current prompt.
+// View renders the match state, the large panel and the current prompt.
 func (s *CricketGame) View(width, height int) string {
-	var b strings.Builder
+	board := s.scoreboard(width)
+	lower := s.lowerPanel(width)
 
-	b.WriteString(s.scoreboard(width))
+	var b strings.Builder
+	b.WriteString(board)
 	b.WriteString("\n")
 
+	// The prompt and the table get their rows first; the large panel takes what
+	// is left and disappears when there is none, exactly as in X01.
+	spare := height - components.LineCount(board) - components.LineCount(lower) - 2
+	if spot := s.spotlight(width, spare); spot != "" {
+		b.WriteString(spot)
+		b.WriteString("\n")
+	}
+
+	b.WriteString(lower)
+	return b.String()
+}
+
+// lowerPanel renders the prompt for the current phase.
+func (s *CricketGame) lowerPanel(width int) string {
 	switch s.phase {
 	case cricketConfirmAbandon:
-		b.WriteString(components.Confirm{
+		return components.Confirm{
 			Title: "Abandon this game?",
 			Body: "No winner will be recorded and it will not count towards\n" +
 				"anybody's cricket record. The visits already entered are kept.",
 			Confirm:   "abandon",
 			Cancel:    "keep playing",
 			Dangerous: true,
-		}.View())
+		}.View()
 	case cricketConfirmLeave:
-		b.WriteString(components.Confirm{
+		return components.Confirm{
 			Title:   "Leave this game?",
 			Body:    "It is saved automatically and will be waiting under Resume game.",
 			Confirm: "leave",
 			Cancel:  "stay",
-		}.View())
+		}.View()
 	case cricketComplete:
-		b.WriteString(s.completePanel())
+		return s.completePanel()
 	case cricketCalculating:
-		b.WriteString(s.calculatorPanel(width))
+		return s.calculatorPanel(width)
 	default:
-		b.WriteString(s.entryPanel(width))
+		return s.entryPanel(width)
 	}
-	return b.String()
+}
+
+// spotlight is the large panel: who is throwing, and the number the innings
+// turns on, drawn big enough to read from the oche.
+//
+// The number belongs to the innings rather than to the thrower, so it does not
+// change when the sides swap over mid-innings — which is the right answer for a
+// bowler, whose job is defined by the total being defended. The supporting line
+// therefore always names the side the number belongs to.
+//
+// It is hidden behind the two dialogs, and once the match is over: the finished
+// game has no thrower and no live number, and completePanel already carries the
+// result.
+func (s *CricketGame) spotlight(width, rows int) string {
+	switch s.phase {
+	case cricketConfirmAbandon, cricketConfirmLeave, cricketComplete:
+		return ""
+	}
+
+	game := s.session.Game()
+	turn, ok := game.CurrentTurn()
+	if !ok {
+		return ""
+	}
+	p := s.session.Player(turn.PlayerID)
+	inn := game.CurrentInnings()
+	batting := game.Team(inn.BattingSide).Name
+
+	banner := "▶ BOWLING"
+	style := styles.WarningText
+	if turn.Kind == cricket.Batting {
+		banner = "▶ BATTING"
+		style = styles.SuccessText
+	}
+
+	// A target exists only in the final innings, which is the one and only
+	// chase. The same test decides it here as in the scoreboard above.
+	number := strconv.Itoa(inn.Runs)
+	caption := fmt.Sprintf("RUNS\nFOR %s", strings.ToUpper(plural(inn.Wickets, "wkt")))
+	sub := fmt.Sprintf("%s BATTING  ·  %s ENDS THE INNINGS",
+		strings.ToUpper(batting), strings.ToUpper(plural(game.Config().WicketLimit, "wicket")))
+
+	if target, chasing := game.Target(); chasing {
+		needed, _ := game.RunsNeeded()
+		number = strconv.Itoa(needed)
+		caption = "TO WIN"
+		sub = fmt.Sprintf("%s NEED %d  ·  TARGET %d  ·  %s DOWN",
+			strings.ToUpper(batting), needed, target, strings.ToUpper(plural(inn.Wickets, "wkt")))
+	}
+
+	return components.Spotlight{
+		Banner:      banner,
+		BannerStyle: &style,
+		Name:        p.Name,
+		Colour:      p.Colour,
+		Number:      number,
+		Caption:     caption,
+		Sub:         sub,
+		Rows:        rows,
+	}.View(width)
 }
 
 func (s *CricketGame) scoreboard(width int) string {

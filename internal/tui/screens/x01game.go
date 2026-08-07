@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BigJabber/dart-tui/internal/app"
+	"github.com/BigJabber/dart-tui/internal/domain/darts"
+	"github.com/BigJabber/dart-tui/internal/domain/x01"
+	"github.com/BigJabber/dart-tui/internal/tui/components"
+	"github.com/BigJabber/dart-tui/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/pourmoi/dart-tui/internal/app"
-	"github.com/pourmoi/dart-tui/internal/domain/darts"
-	"github.com/pourmoi/dart-tui/internal/domain/x01"
-	"github.com/pourmoi/dart-tui/internal/tui/components"
-	"github.com/pourmoi/dart-tui/internal/tui/styles"
 )
 
 // x01Phase is what the game screen is waiting for.
@@ -39,6 +39,16 @@ const (
 // intervenes on a short final visit.
 const defaultDarts = darts.MaxDartsPerVisit
 
+// dartsAtVisitStart is how many darts a checkout suggestion assumes are in hand.
+//
+// Scores are recorded a visit at a time rather than dart by dart, so the
+// application never learns mid-visit how many darts are left. The suggestion is
+// therefore the one that applies at the start of the visit, with all three darts
+// available. The advisor takes the number as a parameter, so a future
+// dart-by-dart mode can ask for fresh advice after every dart without any change
+// here.
+const dartsAtVisitStart = darts.MaxDartsPerVisit
+
 // X01Game is the in-play screen for 301 and 501.
 type X01Game struct {
 	ctx     Context
@@ -58,6 +68,11 @@ type X01Game struct {
 	calc    components.Calculator
 	calcErr string
 
+	// checkouts suggests ways of finishing. It is held rather than called
+	// through a package function so a future version could give a player their
+	// own preferred doubles without touching this screen.
+	checkouts *x01.CheckoutAdvisor
+
 	// lastVisit describes what the previous entry did, so the operator can see
 	// their correction target before pressing undo.
 	lastVisit string
@@ -69,6 +84,7 @@ func NewX01Game(ctx Context, session *app.X01Session) *X01Game {
 		ctx:        ctx,
 		session:    session,
 		entryDarts: defaultDarts,
+		checkouts:  x01.DefaultCheckoutAdvisor(),
 	}
 	s.cursor.SetCount(len(session.Order()))
 	s.selectFirstActive()
@@ -499,31 +515,114 @@ func (s *X01Game) selectFirstActive() {
 
 // -------------------------------------------------------------------- view
 
-// View renders the scoreboard and whichever prompt is active.
+// View renders the scoreboard, the large panel and whichever prompt is active.
 func (s *X01Game) View(width, height int) string {
-	var b strings.Builder
+	board := s.scoreboard(width)
+	lower := s.lowerPanel(width)
 
-	b.WriteString(s.scoreboard(width))
+	var b strings.Builder
+	b.WriteString(board)
 	b.WriteString("\n")
 
+	// Whatever height is left over once the table and the prompt have had
+	// theirs belongs to the large panel. The prompt is what the operator types
+	// into, so it is never the thing that gets squeezed; the large panel is a
+	// reminder, so it shrinks and then goes away. The two is the newline either
+	// side of the panel, which are rows as well.
+	spare := height - components.LineCount(board) - components.LineCount(lower) - 2
+	if spot := s.spotlight(width, spare); spot != "" {
+		b.WriteString(spot)
+		b.WriteString("\n")
+	}
+
+	b.WriteString(lower)
+	return b.String()
+}
+
+// lowerPanel renders the prompt for the current phase.
+func (s *X01Game) lowerPanel(width int) string {
 	switch s.phase {
 	case x01Entering:
-		b.WriteString(s.entryPanel(width))
+		return s.entryPanel(width)
 	case x01ConfirmCheckout:
-		b.WriteString(s.checkoutPanel())
+		return s.checkoutPanel()
 	case x01ConfirmLeave:
-		b.WriteString(components.Confirm{
+		return components.Confirm{
 			Title:   "Leave this game?",
 			Body:    "It is saved automatically and will be waiting under Resume game.",
 			Confirm: "leave",
 			Cancel:  "stay",
-		}.View())
+		}.View()
 	case x01Calculating:
-		b.WriteString(s.calculatorPanel(width))
+		return s.calculatorPanel(width)
 	default:
-		b.WriteString(s.idlePanel(width))
+		return s.idlePanel(width)
 	}
-	return b.String()
+}
+
+// spotlight is the large panel: who is throwing and what they have left, drawn
+// big enough to read from the oche rather than from the keyboard.
+//
+// It is shown while the game is live and the number it displays is current, and
+// hidden whenever a dialog owns the screen. During the checkout question in
+// particular it would show the score from *before* the visit that is being asked
+// about, which is worse than showing nothing.
+func (s *X01Game) spotlight(width, rows int) string {
+	switch s.phase {
+	case x01ConfirmCheckout, x01ConfirmLeave:
+		return ""
+	}
+
+	id, ok := s.selectedPlayer()
+	if !ok {
+		// Everyone has checked out. The scoreboard already says so across the
+		// full width, and repeating it in a box would only add another thing to
+		// read at the moment one key needs pressing.
+		return ""
+	}
+	p := s.session.Player(id)
+	st, ok := s.session.Game().State(id)
+	if !ok {
+		return ""
+	}
+
+	// A way to finish is always more use than an average, and there is room for
+	// one supporting line, so the average is the fallback rather than a second
+	// number that could be mistaken for the big one.
+	sub := ""
+	switch route := s.bestCheckout(st.Score); {
+	case route != "":
+		sub = "CHECKOUT  " + route
+	case st.Darts > 0:
+		sub = fmt.Sprintf("%.1f AVG OVER %d DARTS", st.Average(), st.Darts)
+	default:
+		sub = "NO DARTS YET"
+	}
+
+	return components.Spotlight{
+		Banner:  "NOW THROWING",
+		Name:    p.Name,
+		Colour:  p.Colour,
+		Number:  strconv.Itoa(st.Score),
+		Caption: "LEFT",
+		Sub:     sub,
+		Rows:    rows,
+	}.View(width)
+}
+
+// bestCheckout is the single route worth putting in the large panel. The full
+// list of alternatives stays in the prompt below, where it is read from the
+// keyboard rather than from across the room — a numbered list is noise at that
+// distance.
+//
+// It goes quiet on exactly the scores checkoutAdvice does, so a score with no
+// finish shows nothing here either.
+func (s *X01Game) bestCheckout(score int) string {
+	routes := s.checkouts.Recommend(score, dartsAtVisitStart, 1)
+	if len(routes) == 0 {
+		return ""
+	}
+	return renderRoute(routes[0])
 }
 
 func (s *X01Game) scoreboard(width int) string {
@@ -598,7 +697,13 @@ func (s *X01Game) idlePanel(width int) string {
 		b.WriteString("Ready for ")
 		b.WriteString(styles.PlayerName(p.Colour, true).Render(p.Name))
 		b.WriteString(styles.Faint.Render(" — type their score, or ↑/↓ to pick someone else."))
-		b.WriteString("\n")
+		if st, ok := s.session.Game().State(id); ok {
+			if advice := s.checkoutAdvice(p.Colour, st.Score); advice != "" {
+				b.WriteString("\n\n")
+				b.WriteString(advice)
+			}
+		}
+		b.WriteString("\n\n")
 		b.WriteString(components.CalculatorHint())
 	} else {
 		b.WriteString(styles.Faint.Render("Nobody left to throw. Press f to finish the game."))
@@ -624,6 +729,10 @@ func (s *X01Game) entryPanel(width int) string {
 			st.Average(), st.Darts)))
 	} else {
 		b.WriteString(styles.Faint.Render("  ·  this game: no darts yet"))
+	}
+	if advice := s.checkoutAdvice(p.Colour, st.Score); advice != "" {
+		b.WriteString("\n\n")
+		b.WriteString(advice)
 	}
 	b.WriteString("\n\n")
 
@@ -698,6 +807,54 @@ func (s *X01Game) calculatorPanel(width int) string {
 		panel = panel.Width(minInt(width-2, 78))
 	}
 	return panel.Render(b.String())
+}
+
+// checkoutAdvice renders the recommended ways of finishing a score.
+//
+// It returns nothing at all when the score cannot be finished with the darts in
+// hand — the bogey numbers, anything over 170, and 1 — because a suggestion that
+// cannot be thrown is worse than no suggestion. Setup shots are deliberately not
+// offered here: these are checkouts or nothing.
+func (s *X01Game) checkoutAdvice(colour string, score int) string {
+	routes := s.checkouts.Recommend(score, dartsAtVisitStart, x01.MaxCheckoutRecommendations)
+	if len(routes) == 0 {
+		return ""
+	}
+
+	// The heading carries the player's colour; the routes themselves stay in the
+	// default foreground so they are legible from across the room whatever the
+	// palette and whatever the terminal theme.
+	const label = "Checkout"
+	const gap = "   "
+	heading := styles.PlayerName(colour, false).Render(label)
+
+	if len(routes) == 1 {
+		return heading + gap + styles.Bold.Render(renderRoute(routes[0]))
+	}
+
+	// Alternatives line up underneath the first, so the column of routes reads
+	// as one block rather than a ragged list.
+	indent := strings.Repeat(" ", len(label)+len(gap))
+
+	var b strings.Builder
+	b.WriteString(heading + gap)
+	for i, r := range routes {
+		if i > 0 {
+			b.WriteString("\n" + indent)
+		}
+		b.WriteString(styles.Faint.Render(fmt.Sprintf("%d. ", i+1)))
+		b.WriteString(styles.Bold.Render(renderRoute(r)))
+	}
+	return b.String()
+}
+
+// renderRoute spaces the darts out so a route can be read at a glance.
+func renderRoute(r x01.CheckoutRoute) string {
+	parts := make([]string, 0, r.DartCount())
+	for _, d := range r.Darts {
+		parts = append(parts, d.String())
+	}
+	return strings.Join(parts, "  ")
 }
 
 func (s *X01Game) checkoutPanel() string {

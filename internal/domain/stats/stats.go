@@ -11,8 +11,8 @@
 package stats
 
 import (
-	"github.com/pourmoi/dart-tui/internal/domain/cricket"
-	"github.com/pourmoi/dart-tui/internal/domain/darts"
+	"github.com/BigJabber/dart-tui/internal/domain/cricket"
+	"github.com/BigJabber/dart-tui/internal/domain/darts"
 )
 
 // ---------------------------------------------------------------- X01 input

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/BigJabber/dart-tui/internal/domain/player"
+	"github.com/BigJabber/dart-tui/internal/tui/components"
+	"github.com/BigJabber/dart-tui/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/pourmoi/dart-tui/internal/domain/player"
-	"github.com/pourmoi/dart-tui/internal/tui/components"
-	"github.com/pourmoi/dart-tui/internal/tui/styles"
 )
 
 // playerListMode is what the roster screen is currently doing.

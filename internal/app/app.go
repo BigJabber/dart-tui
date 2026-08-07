@@ -9,7 +9,7 @@ package app
 import (
 	"context"
 
-	"github.com/pourmoi/dart-tui/internal/persistence/sqlite"
+	"github.com/BigJabber/dart-tui/internal/persistence/sqlite"
 )
 
 // Services is the entry point the TUI is given.

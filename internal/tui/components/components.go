@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/BigJabber/dart-tui/internal/tui/styles"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/pourmoi/dart-tui/internal/tui/styles"
 )
 
 // ---------------------------------------------------------------- cursor list

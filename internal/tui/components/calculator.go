@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pourmoi/dart-tui/internal/tui/styles"
+	"github.com/BigJabber/dart-tui/internal/tui/styles"
 )
 
 // MaxCalculatorLength caps the typed expression. A visit is three darts, so

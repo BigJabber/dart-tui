@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/BigJabber/dart-tui/internal/domain/x01"
+	"github.com/BigJabber/dart-tui/internal/tui/components"
+	"github.com/BigJabber/dart-tui/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/pourmoi/dart-tui/internal/domain/x01"
-	"github.com/pourmoi/dart-tui/internal/tui/components"
-	"github.com/pourmoi/dart-tui/internal/tui/styles"
 )
 
 // GameModeSelect asks which game is being played.

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pourmoi/dart-tui/internal/domain/cricket"
-	"github.com/pourmoi/dart-tui/internal/domain/stats"
+	"github.com/BigJabber/dart-tui/internal/domain/cricket"
+	"github.com/BigJabber/dart-tui/internal/domain/stats"
 )
 
 // The statistics queries below only ever read finished games.

@@ -15,9 +15,9 @@ package screens
 import (
 	"context"
 
+	"github.com/BigJabber/dart-tui/internal/app"
+	"github.com/BigJabber/dart-tui/internal/tui/components"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/pourmoi/dart-tui/internal/app"
-	"github.com/pourmoi/dart-tui/internal/tui/components"
 )
 
 // Context is what every screen needs to do its job.

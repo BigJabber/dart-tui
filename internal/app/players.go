@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pourmoi/dart-tui/internal/domain/cricket"
-	"github.com/pourmoi/dart-tui/internal/domain/player"
-	"github.com/pourmoi/dart-tui/internal/persistence/sqlite"
+	"github.com/BigJabber/dart-tui/internal/domain/cricket"
+	"github.com/BigJabber/dart-tui/internal/domain/player"
+	"github.com/BigJabber/dart-tui/internal/persistence/sqlite"
 )
 
 // PlayerService manages the roster.

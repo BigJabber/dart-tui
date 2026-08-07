@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/BigJabber/dart-tui/internal/app"
+	"github.com/BigJabber/dart-tui/internal/persistence/sqlite"
+	"github.com/BigJabber/dart-tui/internal/tui/components"
+	"github.com/BigJabber/dart-tui/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/pourmoi/dart-tui/internal/app"
-	"github.com/pourmoi/dart-tui/internal/persistence/sqlite"
-	"github.com/pourmoi/dart-tui/internal/tui/components"
-	"github.com/pourmoi/dart-tui/internal/tui/styles"
 )
 
 // ResumeList shows games that were left unfinished.

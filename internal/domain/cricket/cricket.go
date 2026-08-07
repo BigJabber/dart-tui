@@ -42,7 +42,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/pourmoi/dart-tui/internal/domain/darts"
+	"github.com/BigJabber/dart-tui/internal/domain/darts"
 )
 
 // RunsThreshold is the raw visit score at or below which a batting visit scores

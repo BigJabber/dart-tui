@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/BigJabber/dart-tui/internal/app"
+	"github.com/BigJabber/dart-tui/internal/domain/player"
+	"github.com/BigJabber/dart-tui/internal/domain/stats"
+	"github.com/BigJabber/dart-tui/internal/domain/x01"
+	"github.com/BigJabber/dart-tui/internal/tui/components"
+	"github.com/BigJabber/dart-tui/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/pourmoi/dart-tui/internal/app"
-	"github.com/pourmoi/dart-tui/internal/domain/player"
-	"github.com/pourmoi/dart-tui/internal/domain/stats"
-	"github.com/pourmoi/dart-tui/internal/domain/x01"
-	"github.com/pourmoi/dart-tui/internal/tui/components"
-	"github.com/pourmoi/dart-tui/internal/tui/styles"
 )
 
 // profileMode is what the profile screen is currently doing.

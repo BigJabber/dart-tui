@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/pourmoi/dart-tui/internal/domain/darts"
+	"github.com/BigJabber/dart-tui/internal/domain/darts"
 )
 
 // Config describes the variant being played.

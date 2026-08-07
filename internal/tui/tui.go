@@ -8,11 +8,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/BigJabber/dart-tui/internal/app"
+	"github.com/BigJabber/dart-tui/internal/tui/components"
+	"github.com/BigJabber/dart-tui/internal/tui/screens"
+	"github.com/BigJabber/dart-tui/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/pourmoi/dart-tui/internal/app"
-	"github.com/pourmoi/dart-tui/internal/tui/components"
-	"github.com/pourmoi/dart-tui/internal/tui/screens"
-	"github.com/pourmoi/dart-tui/internal/tui/styles"
 )
 
 // Minimum usable terminal size. Below this the application says so plainly
@@ -20,12 +20,6 @@ import (
 const (
 	minWidth  = 52
 	minHeight = 14
-)
-
-// headerLines and footerLines are the rows reserved around the screen body.
-const (
-	headerLines = 3
-	footerLines = 3
 )
 
 // Model is the root Bubble Tea model.
@@ -190,17 +184,27 @@ func (m Model) View() string {
 		return ""
 	}
 
-	bodyHeight := m.height - headerLines - footerLines
+	// The header and the footer are measured rather than assumed a fixed size,
+	// because both of them grow: the header gains a row when there is a status
+	// message, and the footer gains one whenever the key hints wrap. A screen
+	// that lays itself out from this number needs it to be true, and a view
+	// that comes out too tall loses its top — the header and the scoreboard —
+	// rather than its bottom.
+	header := m.headerView(screen.Title())
+	footer := m.footerView(screen)
+
+	// The two newlines written either side of the body are rows as well.
+	bodyHeight := m.height - components.LineCount(header) - components.LineCount(footer) - 2
 	if bodyHeight < 1 {
 		bodyHeight = 1
 	}
 
 	var b strings.Builder
-	b.WriteString(m.headerView(screen.Title()))
+	b.WriteString(header)
 	b.WriteString("\n")
 	b.WriteString(screen.View(m.width, bodyHeight))
 	b.WriteString("\n")
-	b.WriteString(m.footerView(screen))
+	b.WriteString(footer)
 	return b.String()
 }
 
@@ -210,16 +214,20 @@ func (m Model) headerView(title string) string {
 		line += styles.Faint.Render("   esc to go back")
 	}
 
-	out := line + "\n" + components.Bar(m.width)
-	if m.status != "" {
-		out += "\n" + m.statusView()
-	}
-	return out
+	// The status row is always there, blank when there is nothing to say. It
+	// used to appear and disappear, which shifted the whole screen down a row
+	// after every visit and could cost the large panel a size at the same time.
+	// On a wall-mounted display that flicker is far more distracting than one
+	// unused row.
+	return line + "\n" + components.Bar(m.width) + "\n" + m.statusView()
 }
 
 // statusView renders the status line. Each kind is prefixed with a word so the
 // severity survives on a monochrome terminal.
 func (m Model) statusView() string {
+	if m.status == "" {
+		return ""
+	}
 	text := components.Truncate(m.status, maxInt(m.width-12, 20))
 	switch m.statusKind {
 	case screens.StatusError:

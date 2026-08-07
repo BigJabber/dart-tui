@@ -13,10 +13,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/pourmoi/dart-tui/internal/app"
-	"github.com/pourmoi/dart-tui/internal/persistence"
-	"github.com/pourmoi/dart-tui/internal/persistence/sqlite"
-	"github.com/pourmoi/dart-tui/internal/tui"
+	"github.com/BigJabber/dart-tui/internal/app"
+	"github.com/BigJabber/dart-tui/internal/persistence"
+	"github.com/BigJabber/dart-tui/internal/persistence/sqlite"
+	"github.com/BigJabber/dart-tui/internal/tui"
 )
 
 // version is stamped at build time with -ldflags "-X main.version=...".

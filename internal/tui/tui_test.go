@@ -4,13 +4,16 @@ import (
 	"context"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/BigJabber/dart-tui/internal/domain/darts"
+
+	"github.com/BigJabber/dart-tui/internal/app"
+	"github.com/BigJabber/dart-tui/internal/persistence/sqlite"
+	"github.com/BigJabber/dart-tui/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/pourmoi/dart-tui/internal/app"
-	"github.com/pourmoi/dart-tui/internal/persistence/sqlite"
-	"github.com/pourmoi/dart-tui/internal/tui"
 )
 
 // harness drives the root model the way Bubble Tea does: it feeds messages in
@@ -139,6 +142,26 @@ func (h *harness) assertNotContains(substr string) {
 	h.t.Helper()
 	if v := h.view(); strings.Contains(v, substr) {
 		h.t.Errorf("screen unexpectedly contains %q.\n---\n%s\n---", substr, v)
+	}
+}
+
+// resize changes the terminal size, for the screens that lay themselves out
+// from the space they are given.
+func (h *harness) resize(width, height int) {
+	h.t.Helper()
+	h.send(tea.WindowSizeMsg{Width: width, Height: height})
+}
+
+// assertFitsScreen checks the rendered view is no taller than the terminal.
+//
+// Bubble Tea keeps the LAST height lines of a view that overflows, so a screen
+// one row too tall silently loses its header and its scoreboard with no other
+// symptom. That failure is quiet enough to be worth a test of its own.
+func (h *harness) assertFitsScreen(height int) {
+	h.t.Helper()
+	v := h.view()
+	if got := strings.Count(v, "\n") + 1; got > height {
+		h.t.Errorf("view is %d rows in a %d-row terminal.\n---\n%s\n---", got, height, v)
 	}
 }
 
@@ -519,6 +542,246 @@ func TestX01CalculatorCheckoutStillAsksAboutTheDouble(t *testing.T) {
 	h.assertContains("Did they finish on a double?")
 	h.press("y")
 	h.assertContains("checked out")
+}
+
+// startAt opens a 501 game for one player and reduces them to the score wanted,
+// so the checkout panel can be inspected at a specific remaining score.
+func startAt(t *testing.T, remaining int) *harness {
+	t.Helper()
+	h := newHarness(t)
+	h.addPlayer("James")
+	h.press("s", "5")
+	h.press("space", "enter")
+
+	// Three visits of at most 180 will reach anything down to 2 from 501.
+	for _, points := range visitsToReach(501, remaining) {
+		h.typeText(strconv.Itoa(points))
+		h.press("enter")
+	}
+	return h
+}
+
+// visitsToReach splits the reduction into legal visits of 180 or less.
+func visitsToReach(from, to int) []int {
+	var out []int
+	for from > to {
+		step := from - to
+		if step > 180 {
+			step = 180
+		}
+		// 179 and its neighbours cannot be thrown; step down to a total that can.
+		for step > 0 && !dartsReachable(step) {
+			step--
+		}
+		out = append(out, step)
+		from -= step
+	}
+	return out
+}
+
+func dartsReachable(points int) bool { return darts.Reachable(points, 3) }
+
+// Checkout suggestions appear for the active player when their score can be
+// finished.
+func TestX01ShowsCheckoutSuggestions(t *testing.T) {
+	h := startAt(t, 170)
+	h.assertContains("170", "Checkout", "T20  T20  Bull")
+}
+
+// Several sensible finishes are offered, numbered.
+func TestX01ShowsCheckoutAlternatives(t *testing.T) {
+	h := startAt(t, 80)
+	h.assertContains("Checkout", "1. T20  D10", "2. T16  D16")
+}
+
+// A score with one sensible finish is not padded out with alternatives.
+func TestX01ShowsASingleRouteWithoutNumbering(t *testing.T) {
+	h := startAt(t, 170)
+	h.assertContains("Checkout", "T20  T20  Bull")
+	h.assertNotContains("1. T20")
+	// The trailing space is deliberate: what this test means is "no list
+	// numbering", and a bare "2." would also match any decimal ending in a two.
+	h.assertNotContains("2. ")
+}
+
+// The panel is hidden entirely when there is no checkout, rather than showing
+// something misleading.
+func TestX01HidesCheckoutWhenThereIsNone(t *testing.T) {
+	for _, score := range []int{169, 168, 166, 165, 163, 162, 159} {
+		t.Run(strconv.Itoa(score), func(t *testing.T) {
+			h := startAt(t, score)
+			h.assertContains(strconv.Itoa(score))
+			h.assertNotContains("Checkout")
+		})
+	}
+}
+
+// A fresh 501 is far too high to finish, so nothing is shown.
+func TestX01HidesCheckoutAtTheStartOfALeg(t *testing.T) {
+	h := newHarness(t)
+	h.addPlayer("James")
+	h.press("s", "5")
+	h.press("space", "enter")
+	h.assertContains("501")
+	h.assertNotContains("Checkout")
+}
+
+// The suggestion stays visible while a score is being typed, alongside the
+// current game average rather than in place of it.
+func TestX01ShowsCheckoutDuringScoreEntry(t *testing.T) {
+	h := startAt(t, 170)
+	h.typeText("60")
+	h.assertContains("this game:", "Checkout", "T20  T20  Bull", "Scored", "60")
+}
+
+// One-dart finishes show just the double.
+func TestX01ShowsOneDartFinishes(t *testing.T) {
+	cases := map[int]string{40: "D20", 32: "D16", 50: "Bull"}
+	for score, want := range cases {
+		t.Run(strconv.Itoa(score), func(t *testing.T) {
+			h := startAt(t, score)
+			h.assertContains("Checkout", want)
+		})
+	}
+}
+
+// The suggestion follows the player whose turn is being recorded.
+func TestX01CheckoutFollowsTheSelectedPlayer(t *testing.T) {
+	h := newHarness(t)
+	h.addPlayer("James")
+	h.addPlayer("Bob")
+	h.press("s", "5")
+	h.press("space", "down", "space", "enter")
+
+	// The roster is alphabetical, so the cursor starts on Bob. Take him to 170
+	// and leave James untouched on 501.
+	h.typeText("140")
+	h.press("enter")
+	h.typeText("140")
+	h.press("enter")
+	h.typeText("51")
+	h.press("enter")
+	h.assertContains("Ready for Bob", "Checkout", "T20  T20  Bull")
+
+	// Selecting James, who is still on 501 and cannot finish, hides the panel.
+	h.press("down")
+	h.assertContains("Ready for James")
+	h.assertNotContains("Checkout")
+}
+
+// ------------------------------------------------- the large "throwing" panel
+
+// On a terminal with room to spare the panel names the thrower and draws their
+// remaining score out of blocks.
+func TestX01SpotlightNamesTheThrower(t *testing.T) {
+	h := startAt(t, 170)
+	h.resize(120, 50)
+
+	h.assertContains("NOW THROWING", "LEFT", "CHECKOUT")
+	// The name and the number are both drawn in blocks here, which no assertion
+	// can read. Their plain forms have to survive in the table and the prompt
+	// below — everything that shrinks or disappears depends on that, so it is
+	// pinned here.
+	h.assertContains("170", "James")
+	h.assertFitsScreen(50)
+}
+
+// One size down there is no longer room for a block name, and it falls back to
+// spaced capitals rather than to nothing.
+func TestX01SpotlightNameFallsBackToText(t *testing.T) {
+	h := startAt(t, 170)
+	h.resize(120, 40)
+	h.assertContains("NOW THROWING", "J A M E S")
+	h.assertFitsScreen(40)
+}
+
+// The panel gives up its size before the prompt gives up any of its own, and
+// then disappears rather than being clipped.
+func TestX01SpotlightDegradesOnAShortTerminal(t *testing.T) {
+	h := startAt(t, 170)
+
+	h.resize(100, 30)
+	h.assertContains("NOW THROWING", "170 LEFT")
+	h.assertFitsScreen(30)
+
+	h.resize(100, 22)
+	h.assertNotContains("NOW THROWING")
+	// The things the operator actually types into are all still there.
+	h.assertContains("Player", "Score", "Ready for James")
+}
+
+// The panel must not move or change size when a visit is recorded: a wall
+// display that jumps a row after every throw is worse than one that does not.
+func TestX01SpotlightDoesNotMoveWhenAVisitIsRecorded(t *testing.T) {
+	h := startAt(t, 170)
+	h.resize(100, 30)
+	before := strings.Count(h.view(), "\n")
+
+	h.typeText("20")
+	h.press("enter") // leaves a status message behind
+	if after := strings.Count(h.view(), "\n"); after != before {
+		t.Errorf("the screen was %d rows and became %d after a visit", before+1, after+1)
+	}
+}
+
+// The remaining score shown beside "did they finish on a double?" would be the
+// one from before the visit being asked about, so the panel gets out of the way.
+func TestX01SpotlightIsHiddenDuringConfirmations(t *testing.T) {
+	h := startAt(t, 40)
+	h.resize(120, 50)
+	h.assertContains("NOW THROWING")
+
+	h.typeText("40")
+	h.press("tab", "tab") // one dart
+	h.press("enter")
+	h.assertContains("Did they finish on a double?")
+	h.assertNotContains("NOW THROWING")
+
+	h.press("esc") // back to the score
+	h.assertContains("NOW THROWING")
+}
+
+// Cricket shows the innings total until the last innings, and the runs needed
+// once there is something to chase.
+func TestCricketSpotlightShowsTheInningsThenTheChase(t *testing.T) {
+	h := newHarness(t)
+	h.addPlayer("Alice")
+	h.addPlayer("Bob")
+
+	h.press("s", "c")
+	h.press("space", "enter")         // Team A: Alice
+	h.press("down", "space", "enter") // Team B: Bob
+	h.press("enter")                  // Team A bats first
+	h.press("backspace")
+	h.typeText("1")
+	h.press("enter")
+	h.resize(120, 50)
+
+	// Innings 1 is not a chase, so the panel counts the innings instead.
+	h.assertContains("▶ BATTING", "Alice", "RUNS", "TEAM A BATTING")
+	h.assertNotContains("TO WIN")
+	h.assertNotContains("chasing")
+	h.assertFitsScreen(50)
+
+	// The number belongs to the innings, not the thrower, so it stays put when
+	// the bowler comes on — and the panel names the side it belongs to.
+	h.typeText("60")
+	h.press("enter")
+	h.assertContains("▶ BOWLING", "Bob", "RUNS", "TEAM A BATTING")
+	h.press("2", "enter")
+
+	// Innings 2 and 3.
+	h.typeText("100")
+	h.press("enter")
+	h.press("2", "enter")
+	h.typeText("140")
+	h.press("enter")
+	h.press("2", "enter")
+
+	// Innings 4: Team B chase 120 and need 61.
+	h.assertContains("innings 4", "TO WIN", "TEAM B NEED 61", "TARGET 120")
+	h.assertContains("chasing 120", "needs 61")
+	h.assertFitsScreen(50)
 }
 
 // ----------------------------------------------------------------- cricket

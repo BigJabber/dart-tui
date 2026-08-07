@@ -8,15 +8,14 @@ const MaxDartsPerVisit = 3
 
 // SingleDartScores is the set of scores a single dart can produce, including 0
 // for a miss (or a dart that bounces out / lands outside the scoring area).
+//
+// It is derived from the board segments rather than listed separately, so the
+// board is described in exactly one place.
 var SingleDartScores = func() []int {
 	seen := map[int]bool{0: true}
-	for i := 1; i <= 20; i++ {
-		seen[i] = true
-		seen[2*i] = true
-		seen[3*i] = true
+	for _, s := range AllSegments {
+		seen[s.Value()] = true
 	}
-	seen[25] = true // outer bull
-	seen[50] = true // inner bull
 	out := make([]int, 0, len(seen))
 	for v := range seen {
 		out = append(out, v)

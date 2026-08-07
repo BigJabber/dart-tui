@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/pourmoi/dart-tui/internal/domain/cricket"
+	"github.com/BigJabber/dart-tui/internal/domain/cricket"
 )
 
 const player int64 = 1

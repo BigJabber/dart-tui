@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pourmoi/dart-tui/internal/domain/cricket"
-	"github.com/pourmoi/dart-tui/internal/domain/player"
-	"github.com/pourmoi/dart-tui/internal/domain/x01"
-	"github.com/pourmoi/dart-tui/internal/persistence/sqlite"
+	"github.com/BigJabber/dart-tui/internal/domain/cricket"
+	"github.com/BigJabber/dart-tui/internal/domain/player"
+	"github.com/BigJabber/dart-tui/internal/domain/x01"
+	"github.com/BigJabber/dart-tui/internal/persistence/sqlite"
 )
 
 // GameService starts, resumes and lists games.

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pourmoi/dart-tui/internal/domain/player"
+	"github.com/BigJabber/dart-tui/internal/domain/player"
 )
 
 // ErrDuplicateName is returned when a player name is already taken.

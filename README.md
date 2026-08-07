@@ -8,7 +8,7 @@ played so closing the window by accident costs nothing.
 It is a single `.exe`. There is no installer, no server, no browser and no
 database to set up.
 
-- **501 / 301** — any number of players, thrown in **any order**
+- **501 / 301** — any number of players, thrown in **any order**, with recommended checkouts
 - **Cricket** — the office's own variant over two legs, **not** standard darts cricket
 - Persistent player statistics, derived from every visit ever recorded
 
@@ -109,6 +109,7 @@ something to memorise.
 | `0`–`9` | Start typing the score for the highlighted player |
 | `↑` `↓` | Choose which player threw |
 | `=` or `+` | Add the darts up (see below) |
+| — | Checkout suggestions appear on their own; there is no key to press |
 | `Tab` | Change the darts thrown (3 → 2 → 1) |
 | `Enter` | Record the visit |
 | `y` / `n` | Answer the "finished on a double?" question |
@@ -152,8 +153,16 @@ On a profile: `e` edit name, `c` change colour, `a` archive or restore.
 **Main menu** — start, resume, players, statistics, exit. Shows how many games
 are waiting to be resumed and where your data lives.
 
+Both game screens have three sections: the table at the top, the **large panel**
+in the middle, and the entry box at the bottom. The table and the entry box are
+for whoever is holding the keyboard; the large panel is for everyone else in the
+room, and is sized to be read from the oche rather than from the desk. It shrinks
+in stages as the window gets smaller and disappears altogether on a short
+terminal — nothing in it is information you cannot also find in the table.
+
 **501 in play** — a table of every player with their score, darts, visits,
-current-game average and status, plus the entry box for the visit being recorded.
+current-game average and status, then the thrower and their remaining score,
+then the entry box for the visit being recorded.
 
 ```
   Player      Score  Darts Visits     Avg  Status
@@ -161,6 +170,20 @@ current-game average and status, plus the entry box for the visit being recorded
   Bob           501      0      0       —  yet to throw
   Carol           0     28     10    53.7  OUT · 28 darts
 
+╭──────────────────────────────────────────────────────╮
+│ NOW THROWING                                         │
+│ ▄▀▀▀▄ █      ▀█▀  ▄▀▀▀▄ █▀▀▀▀                        │
+│ █▄▄▄█ █       █   █     █▄▄▄                         │
+│ █   █ █       █   █   ▄ █                            │
+│ ▀   ▀ ▀▀▀▀▀  ▀▀▀   ▀▀▀  ▀▀▀▀▀                        │
+│                                                      │
+│ ▄▀▀▀▄  ▄▀▀   ▄█                                      │
+│   ▄▄▀ █▄▄▄    █                                      │
+│ ▄   █ █   █   █     LEFT                             │
+│  ▀▀▀   ▀▀▀   ▀▀▀                                     │
+│                                                      │
+│ CHECKOUT  T20  T7  D60                               │
+╰──────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────╮
 │ Alice  ·  361 left  ·  this game: 140.00 avg over 3 darts
 │
@@ -173,6 +196,13 @@ current-game average and status, plus the entry box for the visit being recorded
 aggregates, the wickets standing, and the target once the chase begins. A banner
 spells out whether a **batting** or **bowling** entry is wanted.
 
+The large panel shows the innings total for the first three innings and switches
+to the runs needed for the fourth, which is the only one that is a chase. That
+number belongs to the innings rather than to whoever is throwing, so it does not
+change when the sides swap over — which is the right answer for a bowler, whose
+job is defined by the total being defended. The supporting line always names the
+side the number belongs to.
+
 ```
 Leg 2 of 2  ·  innings 4  ·  chasing 120 on aggregate — needs 61 more to win
 
@@ -182,6 +212,20 @@ Team B   BATTING     60 agg  Charlie, David, Eve
 This innings — Team B: 0 runs for 0 wickets  (2 ends the innings)
 Completed: Team A 20/2  ·  Team B 60/2  ·  Team A 100/2
 
+╭──────────────────────────────────────────────────────╮
+│ ▶ BOWLING                                            │
+│ ▄▀▀▀▄ █      ▀█▀  ▄▀▀▀▄ █▀▀▀▀                        │
+│ █▄▄▄█ █       █   █     █▄▄▄                         │
+│ █   █ █       █   █   ▄ █                            │
+│ ▀   ▀ ▀▀▀▀▀  ▀▀▀   ▀▀▀  ▀▀▀▀▀                        │
+│                                                      │
+│  ▄▀▀   ▄█                                            │
+│ █▄▄▄    █                                            │
+│ █   █   █    TO WIN                                  │
+│  ▀▀▀   ▀▀▀                                           │
+│                                                      │
+│ TEAM B NEED 61  ·  TARGET 120  ·  0 WKTS DOWN        │
+╰──────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────╮
 │ ▶ BOWLING  Alice  (Team A)
 │ this game: 2 bowling visits, 3 wickets (1 outer, 1 inner)
@@ -275,6 +319,67 @@ separates a good leg from a great one:
 Both scored 501 in ten visits, but Player B's leg is clearly stronger. The
 application stores the exact dart count, ranks B ahead of A, and suggests B as
 the winner.
+
+### Recommended checkouts
+
+When the player at the board can finish, the suggested routes appear under their
+name:
+
+```
+Ready for James — type their score, or ↑/↓ to pick someone else.
+
+Checkout   T20  T20  Bull
+```
+
+Where several finishes are genuinely used, up to three are offered, preferred
+first:
+
+```
+Checkout   1. T20  D10
+           2. T16  D16
+           3. D20  D20
+```
+
+Nothing appears unless the score can really be finished with the three darts of
+the visit. **The panel is hidden rather than showing something misleading** — so
+you will see nothing at 501, at 171 or above, at 1, or on the seven bogey
+numbers that cannot be taken out in three darts:
+
+```
+169  168  166  165  163  162  159
+```
+
+Setup shots are not suggested. If a score cannot be checked out, the application
+says nothing rather than pretending otherwise.
+
+#### How the routes are worked out
+
+Two layers, deliberately separate:
+
+- A **solver** enumerates real dartboard segments to find every legal way to
+  finish: the darts must total the score exactly, the last must be a double or
+  the bull, and nothing may take the score below zero. It is the authority on
+  what is possible, and it works for any score rather than depending on a table
+  being complete. It derives the bogey numbers on its own — nobody typed that
+  list into the code.
+- A **curated chart** of the conventional routes, following the published
+  checkout charts, decides which of the legal finishes is worth suggesting. There
+  are many ways to take 100; only `T20 D20` is worth showing.
+
+The chart is data in source, never a download — the application makes no network
+requests and works entirely offline. It is also **not trusted**: every curated
+route is checked by the solver, so a typo in the table fails a test rather than
+reaching a player at the board.
+
+Curated routes may deliberately use more darts than strictly necessary. 101 goes
+in two as `T17 Bull`, but the chart prefers `T17 10 D20` because leaving D20
+beats throwing at the bull. If only two darts are left, that route no longer
+fits and the solver's answer is used instead.
+
+The suggestion assumes all three darts of the visit are available, because scores
+are recorded a visit at a time rather than dart by dart. The underlying API takes
+the number of darts as a parameter, so a future dart-by-dart mode can ask for
+fresh advice after every dart without any change to the engine.
 
 ### Scoring rules
 
@@ -605,7 +710,8 @@ internal/
   domain/                  the rules — no terminal, no SQL
     darts/                 dartboard facts shared by all game modes
     player/                the player entity and colour palette
-    x01/                   501 / 301 engine
+    x01/                   501 / 301 engine, and the checkout solver,
+                           curated chart and route ranker
     cricket/               the office cricket engine
     stats/                 statistics derived from recorded visits
   app/                     application services the interface talks to
@@ -613,7 +719,8 @@ internal/
     sqlite/                all SQL, migrations, the store
   tui/                     Bubble Tea root, screen stack
     screens/               one file per screen
-    components/            reusable widgets, including the dart calculator
+    components/            reusable widgets: the dart calculator, the block
+                           font and the large "now throwing" panel
     styles/                Lip Gloss styles
 ```
 
@@ -633,14 +740,16 @@ Four rules hold this together:
 ### Tests
 
 ```
-internal/domain/darts       100%   dartboard reachability, averages
+internal/domain/darts        99%   board segments, reachability, averages
 internal/domain/player      100%   names, palette, colour assignment
 internal/domain/stats       100%   every derived statistic
-internal/domain/x01          96%   scoring, busts, checkouts, undo, finishing
+internal/domain/x01          89%   scoring, busts, undo, finishing, and the
+                                   checkout solver, chart and ranking
 internal/domain/cricket      98%   runs, wickets, innings, chase, undo
 internal/persistence/sqlite         migrations, save and resume, statistics
 internal/app                        sessions, undo across storage, leaderboard
-internal/tui/components             the dart calculator
+internal/tui/components             the dart calculator, the block font and
+                                   the large panel at every size
 internal/tui                        every screen driven headlessly by keystroke
 ```
 
@@ -666,6 +775,10 @@ here so it can be changed easily.
 | A visit landing on zero that the operator does not confirm is recorded as a bust, matching what happens at the board. | `x01.evaluate` |
 | Winner ranking: completed legs first, then fewest darts, then whoever finished first. Never throwing order. | `x01.Game.better` |
 | Cricket: both teams restart their player rotation at the top of the order at the start of every innings. | `cricket.startInnings` |
+| X01 checkouts finish on D1-D20 or the inner bull; the outer bull scores 25 but cannot finish. | `darts.Segment.IsFinish` |
+| Curated checkout routes are preferred over the solver's own ranking, and are the whole answer when they exist. | `x01.CheckoutAdvisor.Recommend` |
+| Reordering the setup darts is the same route, not an alternative worth showing. | `x01.CheckoutRoute.Key` |
+| Checkout suggestions assume three darts, since scoring is per visit rather than per dart. | `screens.dartsAtVisitStart` |
 | Cricket: a match is two legs of two innings, decided on the combined total. | `cricket.LegsPerGame` |
 | Cricket: in leg 2 the side behind on aggregate bats first, so the leaders bat last and may not bat at all. | `cricket.trailingSide` |
 | Cricket: level aggregates after leg 1 keep the leg 1 order, so the choice never depends on chance. | `cricket.trailingSide` |
@@ -693,6 +806,18 @@ here so it can be changed easily.
 | Discarding a game and archiving a player are confirmed; archiving explains that nothing is deleted. | They are the only destructive actions. |
 | Data is read from SQLite synchronously rather than through commands. | A local single-user file read costs microseconds; async plumbing would add a lot of code for no perceptible gain. |
 | The text-entry cursor does not blink. | Blinking needs a timer redrawing twice a second all afternoon on a wall-mounted screen. |
+| Both game screens have a third, always-visible section between the table and the entry box. | The scoreboard is watched from the oche, where the table is a grey blur and the entry box is none of the room's business. A tab would hide it from exactly the people it is for. |
+| The name is drawn about a quarter the height of the number. | The number is read continuously all through a visit; the name is read once, when the thrower changes. The proportion is one map, `components.NameSizes` — change it there. |
+| The name falls back to spaced capitals when there is no room for blocks, or when it contains a letter the font has no glyph for. | Drawing it in blocks costs the number the same rows, and a name pocked with blank cells where the accents should be is worse than one in ordinary text. |
+| The block font is a 5×7 bitmap in the repository rather than a dependency. | The application ships as one static executable that needs no build tools; a figlet library for one panel is not a fair trade. Every size is generated from the one bitmap, so a character is edited in a single place. |
+| `0` and `O` are the same shape. | The number is always numeric and the name always letters, so the two never share a field. Slashing the zero to tell them apart would make every score look odd for a distinction nothing depends on. |
+| The large panel shrinks through four sizes and then disappears, and the entry box is never squeezed. | Bubble Tea keeps the *last* lines of a view that is too tall, so overflow silently removes the header and the table. The panel is a reminder and can go; the entry box is what is being typed into. |
+| The header always reserves a row for the status line, even when there is nothing to say. | It used to appear and disappear, shifting the whole screen down a row after every visit and sometimes costing the large panel a size at the same time. On a wall display that flicker is worse than one unused row. |
+| The panel is hidden while a confirmation is on screen. | A modal question should not compete with it, and beside "did they finish on a double?" it would show the score from *before* the visit being asked about. |
+| Cricket shows the innings runs in innings 1–3 and the runs needed in innings 4. | Only the fourth innings is a chase, so only then is there a number to chase. The number belongs to the innings, not the thrower, so it does not move when the sides swap over. |
+| The best checkout appears in the large panel as well as in the prompt, but without the alternatives. | The two have different readers at different distances: a numbered list of three routes is noise from across the room. |
+| Every number in the large panel also appears as ordinary text in the table above it. | Block glyphs can be read by an eye and nothing else, and the panel is gone entirely on a short terminal. |
+| A large "who won" panel at the end of a cricket match was left out. | It is a different panel — no thrower and no live number — and the result screen already carries the result. Deliberately deferred, not overlooked. |
 
 ### Data model
 
@@ -722,7 +847,14 @@ dark terminal profiles.
 **Colour never carries meaning on its own.** The current thrower has a `▶` marker
 as well as a highlight, a bust says `BUST`, a finished player says `OUT · 28
 darts`, an archived player says `[archived]`, and selections use `[x]`
-checkboxes. The application is fully usable in monochrome.
+checkboxes. The large panel says `NOW THROWING`, `▶ BATTING` or `▶ BOWLING` in
+words, and labels its number `LEFT` or `TO WIN`. The application is fully usable
+in monochrome.
+
+The number in the large panel is drawn in the ordinary foreground rather than in
+the player's colour, for the same reason the checkout routes are: it has to stay
+legible from across the room whatever the palette and whatever the terminal
+theme. The name above it carries the colour.
 
 ### Players are never deleted
 

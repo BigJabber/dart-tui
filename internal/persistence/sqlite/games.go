@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pourmoi/dart-tui/internal/domain/cricket"
-	"github.com/pourmoi/dart-tui/internal/domain/x01"
+	"github.com/BigJabber/dart-tui/internal/domain/cricket"
+	"github.com/BigJabber/dart-tui/internal/domain/x01"
 )
 
 // Game modes as stored in the games table.

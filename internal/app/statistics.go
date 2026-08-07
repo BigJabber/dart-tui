@@ -4,9 +4,9 @@ import (
 	"context"
 	"sort"
 
-	"github.com/pourmoi/dart-tui/internal/domain/player"
-	"github.com/pourmoi/dart-tui/internal/domain/stats"
-	"github.com/pourmoi/dart-tui/internal/persistence/sqlite"
+	"github.com/BigJabber/dart-tui/internal/domain/player"
+	"github.com/BigJabber/dart-tui/internal/domain/stats"
+	"github.com/BigJabber/dart-tui/internal/persistence/sqlite"
 )
 
 // StatsService produces the figures shown on the profile and leaderboard.
