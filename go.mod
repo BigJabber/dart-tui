@@ -1,4 +1,4 @@
-module github.com/pourmoi/dart-tui
+module github.com/BigJabber/dart-tui
 
 go 1.25.0
 
