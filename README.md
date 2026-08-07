@@ -1,5 +1,8 @@
 # Darts
 
+## A quick FYI
+This is at the moment completely vibecoded and probably no use to anyone outside of my office (The games are very much setup to function in the way we play at work). It'll probably receive some awful updates from now as I try and get my head around go and learn a new language.
+
 A keyboard-driven darts scoreboard that runs in a terminal window. It is built
 for scoring real games while standing next to a dartboard: everything is one or
 two keystrokes, mistakes are easy to take back, and every game is saved as it is
