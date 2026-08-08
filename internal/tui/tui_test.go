@@ -686,6 +686,48 @@ func TestX01SpotlightNamesTheThrower(t *testing.T) {
 	h.assertFitsScreen(50)
 }
 
+// Given the width, the panel moves into a column of its own beside the table
+// and the prompt rather than under them.
+func TestX01SpotlightMovesIntoItsOwnColumn(t *testing.T) {
+	h := startAt(t, 170)
+	h.resize(240, 60)
+
+	// The panel now shares its rows with the table rather than following it, so
+	// the table's heading and the panel's top edge land on the same line.
+	for _, line := range strings.Split(h.view(), "\n") {
+		if strings.Contains(line, "Player") && strings.Contains(line, "╭") {
+			h.assertContains("NOW THROWING", "James")
+			h.assertFitsScreen(60)
+			return
+		}
+	}
+	t.Errorf("the panel is not beside the table:\n%s", h.view())
+}
+
+// Neither arrangement may ever draw outside the terminal. Overflow is quiet —
+// Bubble Tea keeps the last rows of a tall view — so it is worth sweeping.
+//
+// The sweep starts at 68 columns and 18 rows because the scoreboard's own
+// columns add up to 59 whatever it is given, and the prompt panel is nine rows
+// tall; below that the screen already overflowed before any of this existed.
+func TestGameScreensFitTheTerminal(t *testing.T) {
+	h := startAt(t, 170)
+	for width := 68; width <= 260; width += 4 {
+		for height := 18; height <= 62; height += 2 {
+			h.resize(width, height)
+			v := h.view()
+			if got := strings.Count(v, "\n") + 1; got > height {
+				t.Fatalf("%dx%d: %d rows", width, height, got)
+			}
+			for _, line := range strings.Split(v, "\n") {
+				if got := len([]rune(ansi.ReplaceAllString(line, ""))); got > width {
+					t.Fatalf("%dx%d: a line of %d columns", width, height, got)
+				}
+			}
+		}
+	}
+}
+
 // One size down there is no longer room for a block name, and it falls back to
 // spaced capitals rather than to nothing.
 func TestX01SpotlightNameFallsBackToText(t *testing.T) {

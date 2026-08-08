@@ -153,12 +153,31 @@ On a profile: `e` edit name, `c` change colour, `a` archive or restore.
 **Main menu** — start, resume, players, statistics, exit. Shows how many games
 are waiting to be resumed and where your data lives.
 
-Both game screens have three sections: the table at the top, the **large panel**
-in the middle, and the entry box at the bottom. The table and the entry box are
-for whoever is holding the keyboard; the large panel is for everyone else in the
-room, and is sized to be read from the oche rather than from the desk. It shrinks
-in stages as the window gets smaller and disappears altogether on a short
-terminal — nothing in it is information you cannot also find in the table.
+Both game screens have three parts: the table, the **large panel**, and the entry
+box. The table and the entry box are for whoever is holding the keyboard; the
+large panel is for everyone else in the room, and is sized to be read from the
+oche rather than from the desk. It shrinks in stages as the window gets smaller
+and disappears altogether on a short terminal — nothing in it is information you
+cannot also find in the table.
+
+From about 182 columns — which a fullscreen window on a 1080p display comfortably
+exceeds — the panel moves into a **column of its own** on the right, with the
+table and the entry box stacked on the left. That is where the panel is at its
+biggest: it no longer shares its rows with the entry box, so the number can be
+about half again as tall. Narrower than that and the three stack as below.
+
+```
+  Player    Score  Status       │  ╭────────────────────────────╮
+▶ Alice       361  ← throwing   │  │        NOW THROWING        │
+  Bob         501  yet to throw │  │                            │
+                                │  │      █▀▀ █▀▀▄ ▀█▀          │
+╭──────────────────────────────╮│  │      ▀▀█ █▀▀▄  █           │
+│ Ready for Alice              ││  │                            │
+│ Scored  ___                  ││  │   ███   ███  ███           │
+╰──────────────────────────────╯│  │  █   █ █       █    LEFT   │
+                                │  │   ███   ███  ███           │
+                                │  ╰────────────────────────────╯
+```
 
 **501 in play** — a table of every player with their score, darts, visits,
 current-game average and status, then the thrower and their remaining score,
@@ -720,7 +739,8 @@ internal/
   tui/                     Bubble Tea root, screen stack
     screens/               one file per screen
     components/            reusable widgets: the dart calculator, the block
-                           font and the large "now throwing" panel
+                           font, the large "now throwing" panel and the
+                           one-or-two-column game layout
     styles/                Lip Gloss styles
 ```
 
@@ -748,8 +768,9 @@ internal/domain/x01          89%   scoring, busts, undo, finishing, and the
 internal/domain/cricket      98%   runs, wickets, innings, chase, undo
 internal/persistence/sqlite         migrations, save and resume, statistics
 internal/app                        sessions, undo across storage, leaderboard
-internal/tui/components             the dart calculator, the block font and
-                                   the large panel at every size
+internal/tui/components             the dart calculator, the block font, the
+                                   large panel at every size, and the choice
+                                   between one column and two
 internal/tui                        every screen driven headlessly by keystroke
 ```
 
@@ -807,11 +828,15 @@ here so it can be changed easily.
 | Data is read from SQLite synchronously rather than through commands. | A local single-user file read costs microseconds; async plumbing would add a lot of code for no perceptible gain. |
 | The text-entry cursor does not blink. | Blinking needs a timer redrawing twice a second all afternoon on a wall-mounted screen. |
 | Both game screens have a third, always-visible section between the table and the entry box. | The scoreboard is watched from the oche, where the table is a grey blur and the entry box is none of the room's business. A tab would hide it from exactly the people it is for. |
+| Given the width, the panel moves into a column of its own on the right. | A wide terminal has far more width going spare than height: fullscreen at 1920×1080 is around 240 columns, and the prompt panels are written for 80. A column also stops the panel and the prompt competing for the same rows. The split follows who is looking — keyboard on the left, room on the right. |
+| The panel only moves to a column at least as wide as it would have had stacked, which works out at 182 columns. | A column buys height but costs width, and the number is limited by width first because its caption sits beside it. At 160 columns the column would be one short of what the second-largest size needs, so the move would trade a fourteen-row number for a seven-row one. |
+| The parts inside the panel are centred as blocks, not line by line. | The rows of a number are not independent: a stroke has to stay in the same column from the top of the digit to the bottom. Centring each line on its own would shear it. |
 | The name is drawn about a quarter the height of the number. | The number is read continuously all through a visit; the name is read once, when the thrower changes. The proportion is one map, `components.NameSizes` — change it there. |
 | The name falls back to spaced capitals when there is no room for blocks, or when it contains a letter the font has no glyph for. | Drawing it in blocks costs the number the same rows, and a name pocked with blank cells where the accents should be is worse than one in ordinary text. |
 | The block font is a 5×7 bitmap in the repository rather than a dependency. | The application ships as one static executable that needs no build tools; a figlet library for one panel is not a fair trade. Every size is generated from the one bitmap, so a character is edited in a single place. |
 | `0` and `O` are the same shape. | The number is always numeric and the name always letters, so the two never share a field. Slashing the zero to tell them apart would make every score look odd for a distinction nothing depends on. |
-| The large panel shrinks through four sizes and then disappears, and the entry box is never squeezed. | Bubble Tea keeps the *last* lines of a view that is too tall, so overflow silently removes the header and the table. The panel is a reminder and can go; the entry box is what is being typed into. |
+| The large panel shrinks through five sizes and then disappears, and the entry box is never squeezed. | Bubble Tea keeps the *last* lines of a view that is too tall, so overflow silently removes the header and the table. The panel is a reminder and can go; the entry box is what is being typed into. |
+| The largest size is only reachable when the panel has a column to itself. | Stacked it would never have the rows for it, so offering it there would only mean the panel could not draw anything at all on some windows. |
 | The header always reserves a row for the status line, even when there is nothing to say. | It used to appear and disappear, shifting the whole screen down a row after every visit and sometimes costing the large panel a size at the same time. On a wall display that flicker is worse than one unused row. |
 | The panel is hidden while a confirmation is on screen. | A modal question should not compete with it, and beside "did they finish on a double?" it would show the score from *before* the visit being asked about. |
 | Cricket shows the innings runs in innings 1–3 and the runs needed in innings 4. | Only the fourth innings is a chase, so only then is there a number to chase. The number belongs to the innings, not the thrower, so it does not move when the sides swap over. |

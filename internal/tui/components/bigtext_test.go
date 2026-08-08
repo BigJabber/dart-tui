@@ -9,7 +9,7 @@ import (
 )
 
 // blockSizes are every size that actually draws something.
-var blockSizes = []BigSize{BigShort, BigTall, BigHuge}
+var blockSizes = []BigSize{BigShort, BigTall, BigHuge, BigGiant}
 
 func sizeName(size BigSize) string {
 	switch size {
@@ -19,8 +19,24 @@ func sizeName(size BigSize) string {
 		return "tall"
 	case BigHuge:
 		return "huge"
+	case BigGiant:
+		return "giant"
 	default:
 		return "none"
+	}
+}
+
+// biggestFirst is what everything steps down, so it must hold every drawable
+// size exactly once and be in order.
+func TestBiggestFirstIsCompleteAndOrdered(t *testing.T) {
+	if len(biggestFirst) != len(blockSizes) {
+		t.Fatalf("biggestFirst has %d sizes, the tests know about %d",
+			len(biggestFirst), len(blockSizes))
+	}
+	for i, size := range biggestFirst {
+		if i > 0 && BigRows(size) >= BigRows(biggestFirst[i-1]) {
+			t.Errorf("%s is not smaller than %s", sizeName(size), sizeName(biggestFirst[i-1]))
+		}
 	}
 }
 
@@ -148,10 +164,10 @@ func TestBigFitPicksTheLargestThatFits(t *testing.T) {
 		rows, cols int
 		want       BigSize
 	}{
-		{"a wall display", 40, 200, BigHuge},
-		{"exactly huge", BigRows(BigHuge), BigWidth(s, BigHuge), BigHuge},
-		{"one row short of huge", BigRows(BigHuge) - 1, 200, BigTall},
-		{"one column short of huge", 40, BigWidth(s, BigHuge) - 1, BigTall},
+		{"a wall display", 40, 200, BigGiant},
+		{"exactly giant", BigRows(BigGiant), BigWidth(s, BigGiant), BigGiant},
+		{"one row short of giant", BigRows(BigGiant) - 1, 200, BigHuge},
+		{"one column short of giant", 40, BigWidth(s, BigGiant) - 1, BigHuge},
 		// The case nobody thinks of: plenty of height, no width.
 		{"tall but narrow", 40, BigWidth(s, BigShort), BigShort},
 		{"too narrow for anything", 40, BigWidth(s, BigShort) - 1, BigNone},

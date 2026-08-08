@@ -66,6 +66,7 @@ type Spotlight struct {
 // at BigTall will often push the number down a size on anything but a very tall
 // window.
 var NameSizes = map[BigSize]BigSize{
+	BigGiant: BigTall,  // 7 rows against 21
 	BigHuge:  BigShort, // 4 rows against 14
 	BigTall:  BigNone,  // a 4-row name against a 7-row number is too close
 	BigShort: BigNone,
@@ -81,18 +82,16 @@ const (
 	// spotlightCompactRows is the fallback: two borders and two lines.
 	spotlightCompactRows = 4
 
-	// spotlightMaxWidth is wider than the 78 the prose panels use, because the
-	// largest size needs 68 columns for three digits before the caption starts.
-	// This panel is not prose.
-	spotlightMaxWidth = 96
-
 	// captionGap separates the number from its caption.
 	captionGap = 3
 )
 
 // View renders the panel, or "" when there is no room for even the compact form.
 func (s Spotlight) View(width int) string {
-	panelWidth := minInt(width-2, spotlightMaxWidth)
+	// The panel fills whatever width it is given: how much that is belongs to
+	// Layout, which is the only thing that knows whether it has a column to
+	// itself. The two is the border, which Width does not count.
+	panelWidth := width - 2
 	// Below this there is nothing worth drawing a border around.
 	if s.Rows < spotlightCompactRows || panelWidth < 24 {
 		return ""
@@ -107,16 +106,54 @@ func (s Spotlight) View(width int) string {
 
 	// The number and the name come out of one budget, so they are chosen
 	// together: the largest number whose name also fits above it.
-	for _, size := range []BigSize{BigHuge, BigTall, BigShort} {
+	for _, size := range biggestFirst {
 		if BigWidth(s.Number, size) > inner-captionWidth {
 			continue
 		}
 		nameSize := s.nameSizeFor(size, inner)
 		if spotlightFixedRows+BigRows(size)+s.nameRows(nameSize) <= s.Rows {
-			return styles.Panel.Width(panelWidth).Render(s.fullBody(inner, size, nameSize))
+			return s.panel(panelWidth).Render(s.fullBody(inner, size, nameSize))
 		}
 	}
-	return styles.Panel.Width(panelWidth).Render(s.compactBody(inner))
+	return s.panel(panelWidth).Render(s.compactBody(inner))
+}
+
+// panel frames the content. The parts inside have already been centred, each as
+// a block, by centreBlock.
+func (s Spotlight) panel(width int) lipgloss.Style {
+	return styles.Panel.Width(width)
+}
+
+// centreBlock centres a block of lines inside a width, shifting every line by
+// the same amount.
+//
+// The parts are centred here rather than by giving the panel style a centre
+// alignment, because that would place each line on its own. The rows of a
+// number are not independent — a digit's stroke has to stay in the same column
+// from its top row to its bottom — so the block is measured once by its widest
+// line and every line moves together.
+func centreBlock(s string, width int) string {
+	if s == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+
+	widest := 0
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w > widest {
+			widest = w
+		}
+	}
+	pad := (width - widest) / 2
+	if pad <= 0 {
+		return s
+	}
+
+	prefix := strings.Repeat(" ", pad)
+	for i, line := range lines {
+		lines[i] = prefix + line
+	}
+	return strings.Join(lines, "\n")
 }
 
 // nameSizeFor picks the size of the name from NameSizes, stepping down and then
@@ -143,13 +180,13 @@ func (s Spotlight) nameRows(size BigSize) int {
 func (s Spotlight) fullBody(inner int, size, nameSize BigSize) string {
 	var b strings.Builder
 
-	b.WriteString(s.bannerText())
+	b.WriteString(centreBlock(s.bannerText(), inner))
 	b.WriteString("\n")
-	b.WriteString(s.nameBlock(inner, nameSize))
+	b.WriteString(centreBlock(s.nameBlock(inner, nameSize), inner))
 	b.WriteString("\n\n")
-	b.WriteString(s.numberBlock(size))
+	b.WriteString(centreBlock(s.numberBlock(size), inner))
 	b.WriteString("\n\n")
-	b.WriteString(s.subText(inner))
+	b.WriteString(centreBlock(s.subText(inner), inner))
 	return b.String()
 }
 
@@ -159,11 +196,11 @@ func (s Spotlight) fullBody(inner int, size, nameSize BigSize) string {
 func (s Spotlight) compactBody(inner int) string {
 	var b strings.Builder
 
-	b.WriteString(s.bannerText())
+	first := s.bannerText()
 	if s.Name != "" {
-		b.WriteString("   ")
-		b.WriteString(s.nameText(inner - lipgloss.Width(s.Banner) - 3))
+		first += "   " + s.nameText(inner-lipgloss.Width(s.Banner)-3)
 	}
+	b.WriteString(centreBlock(first, inner))
 	b.WriteString("\n")
 
 	parts := make([]string, 0, 2)
@@ -176,7 +213,7 @@ func (s Spotlight) compactBody(inner int) string {
 	if s.Sub != "" {
 		parts = append(parts, truncate(s.Sub, maxInt(inner-lipgloss.Width(headline)-7, 8)))
 	}
-	b.WriteString(strings.Join(parts, styles.Faint.Render("   ·   ")))
+	b.WriteString(centreBlock(strings.Join(parts, styles.Faint.Render("   ·   ")), inner))
 	return b.String()
 }
 

@@ -132,7 +132,14 @@ const (
 	BigTall
 	// BigHuge is the wall-display size.
 	BigHuge
+	// BigGiant is only reachable when the panel has a column to itself, where
+	// there is roughly twice the height a stacked panel ever gets.
+	BigGiant
 )
+
+// biggestFirst is every drawable size, largest first. Both the fitting helper
+// and the panel step down it, so a size added here is picked up by both.
+var biggestFirst = []BigSize{BigGiant, BigHuge, BigTall, BigShort}
 
 // scaleOf returns how many characters wide and how many rows tall one pixel is
 // at a size, and whether rows are packed in pairs.
@@ -148,6 +155,8 @@ func scaleOf(size BigSize) (sx, sy int, half bool) {
 		return 2, 1, false
 	case BigHuge:
 		return 4, 2, false
+	case BigGiant:
+		return 6, 3, false
 	default:
 		return 0, 0, false
 	}
@@ -163,6 +172,8 @@ func BigRows(size BigSize) int {
 		return glyphRows
 	case BigHuge:
 		return glyphRows * 2
+	case BigGiant:
+		return glyphRows * 3
 	default:
 		return 0
 	}
@@ -190,7 +201,7 @@ func BigFit(s string, rows, cols int) BigSize {
 	if s == "" {
 		return BigNone
 	}
-	for _, size := range []BigSize{BigHuge, BigTall, BigShort} {
+	for _, size := range biggestFirst {
 		if BigRows(size) <= rows && BigWidth(s, size) <= cols {
 			return size
 		}

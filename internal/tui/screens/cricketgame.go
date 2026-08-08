@@ -488,23 +488,18 @@ func (s *CricketGame) updateComplete(key tea.KeyMsg) (Screen, tea.Cmd) {
 
 // View renders the match state, the large panel and the current prompt.
 func (s *CricketGame) View(width, height int) string {
-	board := s.scoreboard(width)
-	lower := s.lowerPanel(width)
+	layout := components.NewLayout(width, height)
 
-	var b strings.Builder
-	b.WriteString(board)
-	b.WriteString("\n")
+	board := s.scoreboard(layout.Body)
+	lower := s.lowerPanel(layout.Body)
 
-	// The prompt and the table get their rows first; the large panel takes what
-	// is left and disappears when there is none, exactly as in X01.
-	spare := height - components.LineCount(board) - components.LineCount(lower) - 2
-	if spot := s.spotlight(width, spare); spot != "" {
-		b.WriteString(spot)
-		b.WriteString("\n")
+	// Side by side the panel has a column to itself; stacked it takes whatever
+	// the table and the prompt have left, exactly as in X01.
+	rows := layout.PanelRows
+	if !layout.SideBySide {
+		rows = height - components.LineCount(board) - components.LineCount(lower) - 2
 	}
-
-	b.WriteString(lower)
-	return b.String()
+	return layout.Join(board, s.spotlight(layout.Panel, rows), lower)
 }
 
 // lowerPanel renders the prompt for the current phase.

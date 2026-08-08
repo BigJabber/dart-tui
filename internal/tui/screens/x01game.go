@@ -517,26 +517,21 @@ func (s *X01Game) selectFirstActive() {
 
 // View renders the scoreboard, the large panel and whichever prompt is active.
 func (s *X01Game) View(width, height int) string {
-	board := s.scoreboard(width)
-	lower := s.lowerPanel(width)
+	layout := components.NewLayout(width, height)
 
-	var b strings.Builder
-	b.WriteString(board)
-	b.WriteString("\n")
+	board := s.scoreboard(layout.Body)
+	lower := s.lowerPanel(layout.Body)
 
-	// Whatever height is left over once the table and the prompt have had
-	// theirs belongs to the large panel. The prompt is what the operator types
-	// into, so it is never the thing that gets squeezed; the large panel is a
-	// reminder, so it shrinks and then goes away. The two is the newline either
-	// side of the panel, which are rows as well.
-	spare := height - components.LineCount(board) - components.LineCount(lower) - 2
-	if spot := s.spotlight(width, spare); spot != "" {
-		b.WriteString(spot)
-		b.WriteString("\n")
+	// Beside the other two the panel has a whole column. Stacked, it gets
+	// whatever height is left once they have had theirs — the prompt is what
+	// the operator types into and is never the thing that gets squeezed, while
+	// the panel is a reminder and can shrink and then go away. The two is the
+	// newline either side of it, which are rows as well.
+	rows := layout.PanelRows
+	if !layout.SideBySide {
+		rows = height - components.LineCount(board) - components.LineCount(lower) - 2
 	}
-
-	b.WriteString(lower)
-	return b.String()
+	return layout.Join(board, s.spotlight(layout.Panel, rows), lower)
 }
 
 // lowerPanel renders the prompt for the current phase.
