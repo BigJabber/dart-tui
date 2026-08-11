@@ -346,24 +346,27 @@ type PlayerStats struct {
 	PlayerID int64
 	X01      X01Stats
 	Cricket  CricketStats
+	ATW      ATWStats
 }
 
-// TotalGamesPlayed counts games across both modes. Counting games is meaningful
+// TotalGamesPlayed counts games across every mode. Counting games is meaningful
 // across modes even though averaging scores is not.
 func (p PlayerStats) TotalGamesPlayed() int {
-	return p.X01.GamesPlayed + p.Cricket.GamesPlayed
+	return p.X01.GamesPlayed + p.Cricket.GamesPlayed + p.ATW.GamesPlayed
 }
 
-// TotalTrainingGames counts solo practice sessions. Only X01 can be played
-// alone; cricket needs two sides.
-func (p PlayerStats) TotalTrainingGames() int { return p.X01.TrainingGames }
+// TotalTrainingGames counts solo practice sessions. X01 and Around the World
+// can both be played alone; cricket needs two sides.
+func (p PlayerStats) TotalTrainingGames() int {
+	return p.X01.TrainingGames + p.ATW.TrainingGames
+}
 
-// TotalGamesWon counts wins across both modes.
+// TotalGamesWon counts wins across every mode.
 func (p PlayerStats) TotalGamesWon() int {
-	return p.X01.GamesWon + p.Cricket.GamesWon
+	return p.X01.GamesWon + p.Cricket.GamesWon + p.ATW.GamesWon
 }
 
-// TotalWinPercent is the win rate across both modes.
+// TotalWinPercent is the win rate across every mode.
 func (p PlayerStats) TotalWinPercent() float64 {
 	played := p.TotalGamesPlayed()
 	if played == 0 {

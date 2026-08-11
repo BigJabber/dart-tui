@@ -356,6 +356,8 @@ func (s *PlayerProfile) body(width int) string {
 	b.WriteString("\n")
 	b.WriteString(s.cricketBowlingSection())
 	b.WriteString("\n")
+	b.WriteString(s.atwSection())
+	b.WriteString("\n")
 	b.WriteString(s.recentSection(width))
 
 	return b.String()
@@ -452,6 +454,46 @@ func (s *PlayerProfile) cricketBowlingSection() string {
 	b.WriteString(field("Wickets per visit", fmt.Sprintf("%.2f", bowl.WicketsPerVisit)))
 	b.WriteString(field("Cricket games played", fmt.Sprintf("%d", s.stats.Cricket.GamesPlayed)))
 	b.WriteString(field("Cricket games won", fmt.Sprintf("%d", s.stats.Cricket.GamesWon)))
+	return b.String()
+}
+
+// atwSection reports the Around the World record.
+//
+// There is deliberately no average here that could be confused with a three-
+// dart average. The number that matters is how few darts a run took, and the
+// supporting figures describe how the darts landed rather than what they
+// scored: an Around the World dart scores nothing in the X01 sense.
+func (s *PlayerProfile) atwSection() string {
+	var b strings.Builder
+	b.WriteString(sectionTitle("Around the World"))
+	b.WriteString("\n")
+
+	a := s.stats.ATW
+	if a.GamesPlayed+a.TrainingGames == 0 {
+		b.WriteString(styles.Faint.Render("  No completed games yet.\n"))
+		return b.String()
+	}
+
+	b.WriteString(field("Games played", fmt.Sprintf("%d", a.GamesPlayed)))
+	b.WriteString(field("Games won", fmt.Sprintf("%d", a.GamesWon)))
+	if a.TrainingGames > 0 {
+		b.WriteString(field("Training sessions", fmt.Sprintf("%d", a.TrainingGames)))
+	}
+	b.WriteString(field("Runs completed", fmt.Sprintf("%d of %d (%.0f%%)",
+		a.RunsCompleted, a.GamesPlayed+a.TrainingGames, a.CompletionPercent)))
+
+	if a.BestDarts > 0 {
+		b.WriteString(field("Fewest darts to go round", fmt.Sprintf("%d", a.BestDarts)))
+		b.WriteString(field("Average darts per run", fmt.Sprintf("%.1f", a.AverageDartsPerRun)))
+	} else {
+		b.WriteString(field("Fewest darts to go round", "—"))
+	}
+
+	b.WriteString(field("Darts thrown", fmt.Sprintf("%d", a.Darts)))
+	b.WriteString(field("Targets hit", fmt.Sprintf("%d of %d darts (%.0f%%)",
+		a.Hits, a.Darts, a.HitPercent)))
+	b.WriteString(field("Doubles / trebles hit", fmt.Sprintf("%d / %d", a.Doubles, a.Trebles)))
+	b.WriteString(field("Targets per dart", fmt.Sprintf("%.2f", a.ProgressPerDart)))
 	return b.String()
 }
 

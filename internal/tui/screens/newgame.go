@@ -53,6 +53,12 @@ func NewGameModeSelect(ctx Context) *GameModeSelect {
 			desc:  "office rules · two teams · batting and bowling",
 			setup: func(c Context) Screen { return NewCricketSetup(c) },
 		},
+		{
+			key:   "a",
+			name:  "Around the World",
+			desc:  "1 to 20, then the bulls · fewest darts wins",
+			setup: func(c Context) Screen { return NewATWSetup(c) },
+		},
 	}
 	s.cursor.SetCount(len(s.modes))
 	return s
@@ -69,7 +75,7 @@ func (s *GameModeSelect) Hints() []components.KeyHint {
 	return []components.KeyHint{
 		{Keys: "↑/↓", Desc: "move"},
 		{Keys: "enter", Desc: "choose"},
-		{Keys: "5/3/c", Desc: "jump to a game"},
+		{Keys: "5/3/c/a", Desc: "jump to a game"},
 		{Keys: "esc", Desc: "back"},
 	}
 }

@@ -169,10 +169,19 @@ func (s *Store) PlayerStats(ctx context.Context, playerID int64) (stats.PlayerSt
 	if err != nil {
 		return stats.PlayerStats{}, err
 	}
+	atwVisits, err := s.ATWVisitsForPlayer(ctx, playerID)
+	if err != nil {
+		return stats.PlayerStats{}, err
+	}
+	atwRuns, err := s.ATWRunsForPlayer(ctx, playerID)
+	if err != nil {
+		return stats.PlayerStats{}, err
+	}
 
 	return stats.PlayerStats{
 		PlayerID: playerID,
 		X01:      stats.ComputeX01(x01Visits, x01Legs),
 		Cricket:  stats.ComputeCricket(cricketVisits, cricketEntries),
+		ATW:      stats.ComputeATW(atwVisits, atwRuns),
 	}, nil
 }

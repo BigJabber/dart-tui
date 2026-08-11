@@ -121,6 +121,17 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 }
 
 func (s *Store) applyMigration(ctx context.Context, m migration) error {
+	// A migration that rebuilds a referenced table has to run with foreign key
+	// enforcement off, and the pragma is ignored inside a transaction, so it is
+	// set on the connection first. There is only ever one connection, and it is
+	// restored below whatever happens.
+	if m.WithoutForeignKeys {
+		if _, err := s.db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+			return fmt.Errorf("suspend foreign keys: %w", err)
+		}
+		defer func() { _, _ = s.db.ExecContext(ctx, `PRAGMA foreign_keys = ON`) }()
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -130,6 +141,13 @@ func (s *Store) applyMigration(ctx context.Context, m migration) error {
 	if _, err := tx.ExecContext(ctx, m.SQL); err != nil {
 		return err
 	}
+	if m.WithoutForeignKeys {
+		// Nothing is committed until the rebuilt table has been checked against
+		// every reference to it, so a migration cannot leave orphaned history.
+		if err := checkForeignKeys(ctx, tx); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`,
 		m.Version, m.Name, nowString(),
@@ -137,6 +155,22 @@ func (s *Store) applyMigration(ctx context.Context, m migration) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// checkForeignKeys fails if the database holds a row pointing at one that is no
+// longer there. PRAGMA foreign_key_check returns one row per violation and no
+// rows at all when everything is sound.
+func checkForeignKeys(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return fmt.Errorf("check foreign keys: %w", err)
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		return errors.New("migration left rows referring to a table that no longer holds them")
+	}
+	return rows.Err()
 }
 
 // Version reports the highest migration applied to this database.

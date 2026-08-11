@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/BigJabber/dart-tui/internal/domain/atw"
 	"github.com/BigJabber/dart-tui/internal/domain/cricket"
 	"github.com/BigJabber/dart-tui/internal/domain/player"
 	"github.com/BigJabber/dart-tui/internal/domain/x01"
@@ -188,6 +189,138 @@ func (s *X01Session) Finish(ctx context.Context, winner *int64) error {
 // shows what was actually saved rather than what was attempted.
 func (s *X01Session) resync(ctx context.Context) {
 	rec, err := s.store.LoadX01Game(ctx, s.gameID)
+	if err != nil {
+		return
+	}
+	if game, err := rec.Restore(); err == nil {
+		s.game = game
+	}
+}
+
+// ------------------------------------------------- Around the World sessions
+
+// ATWSession is a live Around the World game: the engine, the row it is stored
+// in, and the players' display details.
+//
+// It mirrors X01Session because the two games are shaped the same way from the
+// outside: an operator-driven visit log with no enforced turn order and a
+// manual finish. What differs is entirely inside the engines.
+type ATWSession struct {
+	store  *sqlite.Store
+	gameID int64
+
+	game    *atw.Game
+	players map[int64]player.Player
+	order   []int64
+}
+
+// StartATW creates a new Around the World game for the selected players.
+func (s *GameService) StartATW(ctx context.Context, playerIDs []int64) (*ATWSession, error) {
+	// Build the engine first: if the selection is invalid, nothing is written.
+	game, err := atw.New(playerIDs)
+	if err != nil {
+		return nil, err
+	}
+	gameID, err := s.store.CreateATWGame(ctx, playerIDs)
+	if err != nil {
+		return nil, err
+	}
+	players, err := s.store.PlayersByID(ctx, playerIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &ATWSession{
+		store:   s.store,
+		gameID:  gameID,
+		game:    game,
+		players: players,
+		order:   append([]int64(nil), playerIDs...),
+	}, nil
+}
+
+// ResumeATW reloads a stored game and replays its darts.
+func (s *GameService) ResumeATW(ctx context.Context, gameID int64) (*ATWSession, error) {
+	rec, err := s.store.LoadATWGame(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+	game, err := rec.Restore()
+	if err != nil {
+		return nil, fmt.Errorf("replay game %d: %w", gameID, err)
+	}
+	players, err := s.store.PlayersByID(ctx, rec.PlayerIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &ATWSession{
+		store:   s.store,
+		gameID:  gameID,
+		game:    game,
+		players: players,
+		order:   rec.PlayerIDs,
+	}, nil
+}
+
+// GameID is the database identifier of this game.
+func (s *ATWSession) GameID() int64 { return s.gameID }
+
+// Game exposes the engine for read-only queries by the screens.
+func (s *ATWSession) Game() *atw.Game { return s.game }
+
+// Order returns the players in selection order. It is display metadata: any
+// unfinished player may throw at any time.
+func (s *ATWSession) Order() []int64 { return s.order }
+
+// Player returns a participant's display details.
+func (s *ATWSession) Player(id int64) player.Player {
+	if p, ok := s.players[id]; ok {
+		return p
+	}
+	return player.Player{ID: id, Name: fmt.Sprintf("Player %d", id), Colour: player.DefaultColour}
+}
+
+// Record applies a visit and stores it. If the write fails the session reloads
+// from the database, so the screen can never claim a visit that was not saved.
+func (s *ATWSession) Record(ctx context.Context, in atw.VisitInput) (atw.Visit, error) {
+	v, err := s.game.Record(in)
+	if err != nil {
+		return atw.Visit{}, err
+	}
+	if err := s.store.AppendATWVisit(ctx, s.gameID, v); err != nil {
+		s.resync(ctx)
+		return atw.Visit{}, err
+	}
+	return v, nil
+}
+
+// Undo removes the most recent visit from both the engine and the database.
+func (s *ATWSession) Undo(ctx context.Context) (atw.Visit, error) {
+	v, err := s.game.Undo()
+	if err != nil {
+		return atw.Visit{}, err
+	}
+	if err := s.store.DeleteLastATWVisit(ctx, s.gameID); err != nil {
+		s.resync(ctx)
+		return atw.Visit{}, err
+	}
+	return v, nil
+}
+
+// Finish closes the game with the winners the operator confirmed. Passing none
+// records a game that ended without one.
+func (s *ATWSession) Finish(ctx context.Context, winners []int64) error {
+	if err := s.game.Finish(winners); err != nil {
+		return err
+	}
+	if err := s.store.FinishATWGame(ctx, s.gameID, winners, s.game.Results()); err != nil {
+		s.resync(ctx)
+		return err
+	}
+	return nil
+}
+
+func (s *ATWSession) resync(ctx context.Context) {
+	rec, err := s.store.LoadATWGame(ctx, s.gameID)
 	if err != nil {
 		return
 	}

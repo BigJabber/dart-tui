@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/BigJabber/dart-tui/internal/domain/atw"
 	"github.com/BigJabber/dart-tui/internal/domain/cricket"
 	"github.com/BigJabber/dart-tui/internal/domain/player"
 	"github.com/BigJabber/dart-tui/internal/domain/x01"
@@ -118,6 +119,11 @@ func describeResult(rg *RecentGame, g sqlite.GameSummary, results []sqlite.Resul
 		}
 	}
 
+	if g.Mode == sqlite.ModeATW {
+		describeATWResult(rg, g, results, mine)
+		return
+	}
+
 	if g.Mode == sqlite.ModeCricket {
 		switch cricket.ParseResult(g.Outcome) {
 		case cricket.ResultDraw:
@@ -162,10 +168,59 @@ func describeResult(rg *RecentGame, g sqlite.GameSummary, results []sqlite.Resul
 	}
 }
 
+// describeATWResult fills in the outcome for one Around the World game.
+//
+// The detail says how many darts a completed run took, because that is the
+// result. An unfinished run reports how far round the board the player got and
+// deliberately never reports a dart count as though it were a score: thirty
+// darts spent reaching target 12 is not comparable with a completed run.
+func describeATWResult(rg *RecentGame, g sqlite.GameSummary, results []sqlite.ResultRow, mine *sqlite.ResultRow) {
+	switch {
+	case mine == nil:
+		rg.Outcome = "—"
+	case atw.IsTraining(len(g.ParticipantIDs)):
+		rg.Outcome = "Training"
+	case mine.Won:
+		rg.Outcome, rg.Won = "Won", true
+	case !anyoneWon(results):
+		rg.Outcome = "No result"
+	default:
+		rg.Outcome = "Lost"
+	}
+
+	switch {
+	case mine == nil:
+	case mine.Completed:
+		rg.Detail = fmt.Sprintf("round in %d darts", mine.Darts)
+	case mine.Visits == 0:
+		rg.Detail = "did not throw"
+	case mine.Remaining != nil:
+		rg.Detail = fmt.Sprintf("%d targets left", *mine.Remaining)
+	}
+}
+
+// anyoneWon reports whether the game recorded a winner at all.
+//
+// It reads the per-player rows rather than the single winner on the game row,
+// because a tie deliberately leaves that empty: two players finishing in the
+// same number of darts have both won, and neither may be picked as "the"
+// winner.
+func anyoneWon(results []sqlite.ResultRow) bool {
+	for _, r := range results {
+		if r.Won {
+			return true
+		}
+	}
+	return false
+}
+
 // GameLabel is the short human name for a game, such as "501" or "Cricket".
 func GameLabel(g sqlite.GameSummary) string {
-	if g.Mode == sqlite.ModeCricket {
+	switch g.Mode {
+	case sqlite.ModeCricket:
 		return "Cricket"
+	case sqlite.ModeATW:
+		return "Around the World"
 	}
 	if g.StartScore > 0 {
 		return fmt.Sprintf("%d", g.StartScore)

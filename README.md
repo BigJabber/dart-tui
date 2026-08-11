@@ -10,6 +10,7 @@ database to set up.
 
 - **501 / 301** — any number of players, thrown in **any order**, with recommended checkouts
 - **Cricket** — the office's own variant over two legs, **not** standard darts cricket
+- **Around the World** — 1 to 20 then the bulls, doubles and trebles skip ahead, fewest darts wins
 - Persistent player statistics, derived from every visit ever recorded
 
 ---
@@ -22,6 +23,7 @@ database to set up.
 - [Screens](#screens)
 - [501 and 301](#501-and-301)
 - [Cricket — the office rules](#cricket--the-office-rules)
+- [Around the World](#around-the-world)
 - [Statistics](#statistics)
 - [Where your data is stored](#where-your-data-is-stored)
 - [Building from source](#building-from-source)
@@ -128,6 +130,18 @@ something to memorise.
 | `Enter` | Record the visit |
 | `u` | Undo the last visit |
 | `f` | Abandon the game with no result |
+
+### Playing Around the World
+
+| Key | Action |
+| --- | --- |
+| `↑` `↓` | Choose which player threw |
+| `0`–`3` | One key per dart: miss / single / double / treble |
+| `Enter` | Record the visit |
+| `Backspace` | Rub out the last dart typed |
+| `u` | Undo the last visit |
+| `f` | Finish the game and confirm the winner |
+| `Esc` | Leave (the game is saved and can be resumed) |
 
 ### Players
 
@@ -607,6 +621,166 @@ This ending logic is deliberately kept in one place (`endInnings` in
 `internal/domain/cricket`) so the office can extend it later — a super-over, a
 tie-break, or a different number of legs.
 
+## Around the World
+
+Each player works along a fixed sequence of targets:
+
+```
+1  2  3 ... 19  20  Outer Bull  Bullseye
+```
+
+They start on 1 and their run is complete when they hit the bullseye. The result
+is simply **how many darts it took**, so fewer is better.
+
+### Skipping
+
+How far a dart carries a player depends on where it lands on the target they
+need:
+
+| Key | Meaning | Advances |
+| --- | --- | --- |
+| `0` | Missed the target | 0 |
+| `1` | Single | 1 |
+| `2` | Double | 2 |
+| `3` | Treble | 3 |
+
+So from target 1: a single 1 leads to 2, a double 1 skips to 3, and a treble 1
+skips to 4.
+
+`0` means "did not hit the target they needed" and nothing more. A player aiming
+at 8 who lands single 12 has missed; which wrong bed they found is not worth a
+keystroke at the board.
+
+### Each dart is scored against the target as it stands
+
+The targets move **during** a visit, so every dart is judged against whatever the
+one before it left behind. Starting on 1 and typing `031`:
+
+| Dart | Key | What happened | Next target |
+| --- | --- | --- | --- |
+| 1 | `0` | Missed | 1 |
+| 2 | `3` | Treble 1 — completes 1, skips 2 and 3 | 4 |
+| 3 | `1` | Single 4 | 5 |
+
+The visit ends on **5**, not on 2.
+
+### Recording a visit
+
+One key per dart, then `Enter`:
+
+```
+031  ↵
+```
+
+There is no confirmation between darts. This game is many short visits rather
+than a few long ones, and anything needing a keypress per dart would be felt
+every single turn. The screen previews what each dart did before you commit:
+
+```
+Darts  0 3 1     miss, treble 1, single 4
+→ next target 5
+```
+
+`Backspace` rubs out the last dart typed. A dart that could not have been thrown
+is refused on the keystroke that caused it, while you still know which dart you
+meant.
+
+### The bulls
+
+There is no treble bull, so the keys change on the last two targets, and the
+screen says so when you get there.
+
+When the target is the **outer bull**:
+
+| Key | Meaning | Advances |
+| --- | --- | --- |
+| `0` | Miss | 0 |
+| `1` | Outer bull | 1, to the bullseye |
+| `2` | Bullseye | 2 — the run is complete |
+| `3` | Refused | — |
+
+When the target is the **bullseye**:
+
+| Key | Meaning |
+| --- | --- |
+| `0` | Miss |
+| `1` or `2` | Bullseye — the run is complete |
+| `3` | Refused |
+
+`1` and `2` both work on the bullseye — `2` because it has just meant the bull,
+`1` because it means "hit what was needed" — and both record the same thing: the
+dart struck the bullseye. What is stored is the segment, never the keystroke.
+
+### Running off the end
+
+Skipping continues through the join between the numbers and the bulls, because
+the sequence is walked rather than calculated:
+
+| On | Dart | Next |
+| --- | --- | --- |
+| 19 | single | 20 |
+| 19 | double | Outer Bull |
+| 19 | treble | Bullseye |
+| 20 | single | Outer Bull |
+| 20 | double | Bullseye |
+| 20 | treble | **Finished** |
+
+A treble 20 from target 20 therefore completes the run, carrying the player
+through 20, the outer bull and the bullseye in one dart.
+
+### Counting the darts
+
+Every dart thrown counts, including misses. Seven full visits is 21 darts.
+
+A run completed part-way through a visit costs only the darts actually thrown.
+A player on 27 darts who misses and then hits the bullseye finishes on **29**,
+not 30 — the third dart was never thrown, and keying one after the run is
+complete is refused.
+
+### Turn order
+
+As in 501 and 301, there is none. The application never advances to "the next
+player": pick whoever has walked up to the board. This is completely valid:
+
+```
+James throws
+James throws again
+Sarah throws
+James throws again
+Alex throws
+```
+
+### Finishing
+
+A player completing their run does **not** end the game — the others may still
+want to finish their own. Press `f` when the office is done.
+
+The suggested winner is whoever went round in the **fewest darts**, never
+whoever finished first: with players throwing in any order, finishing first says
+only that somebody got to the board more often.
+
+Two players round in the same number of darts have **tied**. That is offered as
+a single choice recording both, because picking one of them would be inventing a
+result. An unfinished run is reported by how far it got and never by a dart
+count, which would not be comparable:
+
+```
+James      round in 29 darts
+Sarah      round in 33 darts
+Alex       on 12, 11 to go
+Chris      did not throw
+
+Suggested winner: James
+```
+
+A game stopped before anybody finished is saved with no winner.
+
+### Training — playing alone
+
+Selecting a single player starts a training session, on the same rule 501 and
+301 use: there is nobody to beat, so no win is recorded, though every dart and
+every record still counts. See [Training](#training--playing-301-or-501-alone).
+
 ## Statistics
 
 Statistics are **derived from the recorded visits**, not accumulated into stored
@@ -619,8 +793,11 @@ darts". While you are playing, the game screen shows **current-game** figures
 instead, which is what you actually want at the board — and the profile screen
 labels its numbers "lifetime" so the two are never confused.
 
-X01 and cricket figures are kept strictly apart. Averaging a three-dart average
-together with a cricket batting average would produce a meaningless number.
+Each mode's figures are kept strictly apart. Averaging a three-dart average
+together with a cricket batting average would produce a meaningless number, and
+an Around the World dart scores nothing in the X01 sense at all — twenty-two
+darts spent working round the board would drag a three-dart average through the
+floor while saying nothing whatever about how the player scores.
 
 ### The three-dart average
 
@@ -647,6 +824,21 @@ Everything else includes solo practice, because the darts were thrown either way
 
 High-score counts use credited points, so a visit that busts counts towards
 nothing — which is what happened at the board.
+
+### Around the World figures
+
+Games played, games won, training sessions, runs completed and the completion
+rate, fewest darts to go round, average darts per completed run, total darts,
+targets hit as a share of darts thrown, doubles and trebles hit, and targets
+advanced per dart.
+
+Only completed runs are averaged. An abandoned run has no dart count worth
+averaging, so including it would flatter the figure.
+
+The individual darts are stored as the board segments they struck, not as the
+keys typed, so finer statistics — which numbers a player misses most, how their
+hit rate changes round the board — can be added later without needing data that
+was never kept.
 
 ### Cricket figures
 
@@ -761,6 +953,8 @@ internal/
     x01/                   501 / 301 engine, and the checkout solver,
                            curated chart and route ranker
     cricket/               the office cricket engine
+    atw/                   Around the World: the target sequence, the
+                           dart rules and the run engine
     stats/                 statistics derived from recorded visits
   app/                     application services the interface talks to
   persistence/
@@ -781,8 +975,9 @@ Four rules hold this together:
    visit did and displays the answer.
 2. **SQLite does not own the rules.** The store records what happened and hands
    it back; it never decides what a bust is.
-3. **X01 contains no cricket branching, and cricket contains no X01 branching.**
-   They share only dartboard facts such as "no single dart scores 23".
+3. **No game mode branches on another.** X01 contains no cricket branching,
+   cricket contains no Around the World branching, and so on. They share only
+   dartboard facts such as "no single dart scores 23" and what a treble 20 is.
 4. **The engines are testable with no terminal.** Most of the test suite never
    starts a UI.
 
@@ -794,7 +989,9 @@ internal/domain/player      100%   names, palette, colour assignment
 internal/domain/stats       100%   every derived statistic
 internal/domain/x01          89%   scoring, busts, undo, finishing, and the
                                    checkout solver, chart and ranking
-internal/domain/cricket      98%   runs, wickets, innings, chase, undo
+internal/domain/cricket      97%   runs, wickets, innings, chase, undo
+internal/domain/atw          95%   the target sequence, dart-by-dart scoring,
+                                   the bulls, exact dart counts, undo, replay
 internal/persistence/sqlite         migrations, save and resume, statistics
 internal/app                        sessions, undo across storage, leaderboard
 internal/tui/components             the dart calculator, the block font, the
@@ -807,8 +1004,8 @@ The TUI tests drive the real screens through the real database with synthetic ke
 presses and assert on the rendered text, so navigation and rendering are covered
 without a terminal.
 
-Both engines are **event-sourced**: state is derived by replaying an ordered log
-of visits, never mutated in place. That is what makes undo reliable — it drops
+All three engines are **event-sourced**: state is derived by replaying an
+ordered log of visits, never mutated in place. That is what makes undo reliable — it drops
 the last entry and replays, so there is no per-field reversal logic to get wrong —
 and it is why a resumed game cannot drift from the one that was saved.
 
@@ -837,6 +1034,12 @@ here so it can be changed easily.
 | Cricket: in leg 2 the side behind on aggregate bats first, so the leaders bat last and may not bat at all. | `cricket.trailingSide` |
 | Cricket: level aggregates after leg 1 keep the leg 1 order, so the choice never depends on chance. | `cricket.trailingSide` |
 | Cricket: only the fourth innings is a chase; leg 1 is played out in full. | `cricket.step` |
+| Around the World runs 1-20 then the outer bull then the bullseye, walked as an ordered list rather than calculated, so 19, 20 and the bulls need no special cases. | `atw.Sequence` |
+| A dart is stored as the board segment it struck, never as the key typed: "D14" stays true after the target has moved on. How far it advanced a player is recomputed on replay. | `atw.Dart` |
+| There is no treble bull, so `3` is refused on both bull targets; `2` on the outer bull means the bullseye, worth two steps. | `atw.Resolve` |
+| Around the World is won on fewest darts, never on who finished first — players throw in any order. | `atw.Game.SuggestWinners` |
+| Equal dart counts are a genuine tie and are recorded as a win for each player, with no single winner on the game row. | `sqlite.FinishATWGame` |
+| Around the World applies the same solo-training rule as X01, restated rather than shared: the games agree today but are free to disagree later. | `atw.MinPlayersForWinner` |
 | Cricket: bowled out exactly level on aggregate is a draw. Matching does not win. | `cricket.endInnings` |
 | Cricket: the runs threshold is one named constant (`RunsThreshold = 40`). | `cricket.RunsFor` |
 | Cricket has no manual "finish" — it ends itself — but a game can be **abandoned** with no result, because office games do stop early. | `cricket.Game.Abandon` |
@@ -881,16 +1084,31 @@ here so it can be changed easily.
 
 The schema follows the suggested shape with two deliberate changes:
 
-- **X01 visits and cricket events are separate tables** rather than one generic
-  `visits` table. The two record genuinely different things, and separating them
-  keeps the statistics queries honest and the constraints meaningful.
+- **Each mode's visits are their own table** — `x01_visits`, `cricket_events`,
+  `atw_visits` — rather than one generic `visits` table. They record genuinely
+  different things, and separating them keeps the statistics queries honest and
+  the constraints meaningful.
 - **Innings are not stored.** They are a pure function of the cricket event log
   and the configured wicket limit, so storing them would create a second source
   of truth that could drift. They are recomputed on load.
 
 Derived columns on `x01_visits` (credited, bust, checkout, the score either side)
-are stored so statistics can be queried directly, but they are always recomputed
-by replay on load and never trusted as the source of truth.
+and on `atw_visits` (darts, targets advanced, the target either side) are stored
+so statistics can be queried directly, but they are always recomputed by replay
+on load and never trusted as the source of truth.
+
+`atw_darts` holds one row per dart, storing the board segment struck — `D14`,
+`25`, `Bull` — or `-` for a miss. Nothing stores which key the operator pressed:
+"double" stops meaning anything once the target has moved on, whereas `D14` does
+not, and the segment is what any future statistic would need.
+
+**Adding Around the World required rebuilding the `games` table.** Its `mode` is
+constrained by a `CHECK`, and SQLite cannot widen one in place. Dropping a table
+that the entire history references would cascade-delete every game, so migration
+2 suspends foreign key enforcement around the rebuild and verifies the result
+with `PRAGMA foreign_key_check` before committing. A test upgrades a real
+version-1 database with finished and in-progress games in it and checks every
+one survives.
 
 `game_results` stores the confirmed outcome of a finished game. Almost all of it
 could be recalculated — but **who won** is the operator's decision, not a

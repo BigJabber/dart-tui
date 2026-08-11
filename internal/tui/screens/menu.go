@@ -34,7 +34,7 @@ func NewMenu(ctx Context) *Menu {
 		{
 			key:   "s",
 			label: "Start game",
-			desc:  "501, 301 or Cricket",
+			desc:  "501, 301, Cricket or Around the World",
 			open:  func(c Context) tea.Cmd { return Push(NewGameModeSelect(c)) },
 		},
 		{

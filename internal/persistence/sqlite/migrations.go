@@ -9,6 +9,15 @@ type migration struct {
 	Version int
 	Name    string
 	SQL     string
+	// WithoutForeignKeys runs the migration with foreign key enforcement off.
+	//
+	// SQLite cannot alter a CHECK constraint in place: the table has to be
+	// rebuilt and the old one dropped. With enforcement on, dropping it would
+	// cascade-delete every row that references it — which is the entire history
+	// of every game. The documented procedure is to turn enforcement off around
+	// the rebuild and verify the result before committing, which is what the
+	// runner does when this is set.
+	WithoutForeignKeys bool
 }
 
 // migrations is the ordered schema history.
@@ -153,6 +162,82 @@ CREATE TABLE game_results (
 );
 
 CREATE INDEX idx_game_results_player ON game_results (player_id);
+`,
+	},
+	{
+		Version: 2,
+		Name:    "around the world",
+		// The games table is rebuilt rather than altered because its mode is
+		// constrained by a CHECK, and SQLite has no way to widen one in place.
+		// Everything else about the table is carried over unchanged.
+		//
+		// The child tables reference "games" by name. Renaming the new table
+		// into place with foreign keys disabled leaves those references pointing
+		// at it, which is exactly what is wanted: the rows are untouched and
+		// they now belong to the rebuilt table.
+		WithoutForeignKeys: true,
+		SQL: `
+CREATE TABLE games_v2 (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode        TEXT    NOT NULL CHECK (mode IN ('x01', 'cricket', 'atw')),
+    status      TEXT    NOT NULL CHECK (status IN ('in_progress', 'finished')),
+    created_at  TEXT    NOT NULL,
+    finished_at TEXT,
+
+    start_score INTEGER,
+    double_out  INTEGER,
+
+    wicket_limit  INTEGER,
+    first_batting TEXT CHECK (first_batting IS NULL OR first_batting IN ('A', 'B')),
+
+    winner_player_id INTEGER REFERENCES players (id),
+    outcome          TEXT
+);
+
+INSERT INTO games_v2
+SELECT id, mode, status, created_at, finished_at, start_score, double_out,
+       wicket_limit, first_batting, winner_player_id, outcome
+FROM games;
+
+DROP TABLE games;
+ALTER TABLE games_v2 RENAME TO games;
+
+CREATE INDEX idx_games_status ON games (status, created_at DESC);
+CREATE INDEX idx_games_mode ON games (mode, status);
+
+-- One row per Around the World visit. As with x01_visits the derived columns
+-- are recomputed by replaying the darts on load; they are stored so statistics
+-- can be queried directly without replaying every game a player has thrown.
+--
+-- The two target columns hold a position in the target sequence, 0 for "1" up
+-- to 21 for the bullseye and 22 for a completed run. That numbering is an
+-- implementation detail of the ordered sequence and is converted at the edge;
+-- nothing outside the domain reasons about it, and nothing displays it.
+CREATE TABLE atw_visits (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id       INTEGER NOT NULL REFERENCES games (id) ON DELETE CASCADE,
+    seq           INTEGER NOT NULL,
+    player_id     INTEGER NOT NULL REFERENCES players (id),
+    darts         INTEGER NOT NULL CHECK (darts BETWEEN 1 AND 3),
+    advanced      INTEGER NOT NULL DEFAULT 0,
+    target_before INTEGER NOT NULL,
+    target_after  INTEGER NOT NULL,
+    completed     INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (game_id, seq)
+);
+
+CREATE INDEX idx_atw_visits_player ON atw_visits (player_id);
+
+-- Individual darts, holding the board segment struck rather than the keystroke
+-- typed. "D14" stays true after the target has moved on; "double" does not.
+-- A miss is stored as "-", because the operator is never asked which wrong
+-- number was hit.
+CREATE TABLE atw_darts (
+    visit_id INTEGER NOT NULL REFERENCES atw_visits (id) ON DELETE CASCADE,
+    idx      INTEGER NOT NULL,
+    segment  TEXT    NOT NULL,
+    PRIMARY KEY (visit_id, idx)
+);
 `,
 	},
 }

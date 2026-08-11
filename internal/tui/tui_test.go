@@ -55,6 +55,12 @@ func (h *harness) send(msg tea.Msg) {
 		h.t.Fatalf("Update returned %T, want tui.Model", next)
 	}
 	h.model = m
+	// Bubble Tea renders after every update, and a screen may carry state that
+	// only rendering establishes — the profile's viewport learns how long its
+	// content is from View, and will not scroll until it has. Rendering here
+	// rather than only when a test asks keeps the harness faithful, so a test
+	// cannot pass or fail on how often it happened to look at the screen.
+	_ = h.model.View()
 	h.run(cmd)
 }
 
@@ -231,7 +237,18 @@ func TestAddAndArchivePlayer(t *testing.T) {
 
 	// Open the profile and archive her.
 	h.press("enter")
-	h.assertContains("Lifetime summary", "Cricket — batting", "Cricket — bowling", "Recent games")
+	h.assertContains("Lifetime summary", "Cricket — batting", "Cricket — bowling")
+
+	// Every mode has a section, which is more than fits on one screen, so the
+	// last of them is reached by scrolling.
+	h.assertContains("Around the World")
+	for i := 0; i < 12; i++ {
+		h.press("down")
+	}
+	h.assertContains("Recent games")
+	for i := 0; i < 12; i++ {
+		h.press("up")
+	}
 
 	h.press("a") // archive
 	h.assertContains("Archive Alice?", "Nothing is deleted")
@@ -1215,4 +1232,348 @@ func TestCricketRequiresPlayersOnBothTeams(t *testing.T) {
 	h.press("s", "c")
 	h.press("enter") // Team A empty
 	h.assertContains("Pick at least one player")
+}
+
+// -------------------------------------------------------- Around the World
+
+// atwStart opens an Around the World game with the named players selected.
+func atwStart(t *testing.T, names ...string) *harness {
+	t.Helper()
+	h := newHarness(t)
+	for _, name := range names {
+		h.addPlayer(name)
+	}
+	h.press("s", "a")
+	h.assertContains("Around the World", "choose players")
+	// The roster is alphabetical, so selecting from the top selects in that
+	// order rather than the order the names were added.
+	h.press("space")
+	for i := 1; i < len(names); i++ {
+		h.press("down", "space")
+	}
+	h.press("enter")
+	return h
+}
+
+// atwWalk advances the selected player n targets using single hits, one visit
+// per dart so the count is unambiguous.
+func atwWalk(h *harness, n int) {
+	h.t.Helper()
+	for i := 0; i < n; i++ {
+		h.typeText("1")
+		h.press("enter")
+	}
+}
+
+func TestATWAppearsInTheGameMenu(t *testing.T) {
+	h := newHarness(t)
+	h.addPlayer("Alice")
+	h.press("s")
+	h.assertContains("Which game?", "501", "301", "Cricket", "Around the World")
+}
+
+// The worked example from the specification, through the real UI: a visit is
+// scored dart by dart, not all three against the opening target.
+func TestATWVisitIsScoredDartByDart(t *testing.T) {
+	h := atwStart(t, "Alice")
+
+	h.typeText("031")
+	// The preview says what will happen before it is recorded.
+	h.assertContains("miss, treble 1, single 4", "next target 5")
+	h.press("enter")
+
+	h.assertContains("Alice threw miss, treble 1, single 4")
+	// Scored against the opening target throughout, this would read 2.
+	h.assertNotContains("Ready for Alice on 2")
+	h.assertContains("Ready for Alice on 5")
+}
+
+func TestATWRejectsBadDartKeys(t *testing.T) {
+	h := atwStart(t, "Alice")
+
+	// 4 and above are not dart outcomes and never start a visit.
+	h.typeText("4")
+	h.assertNotContains("Darts  4")
+
+	// A fourth dart is refused.
+	h.typeText("1111")
+	h.assertContains("at most 3 darts")
+}
+
+// The bulls take different keys, and the screen says so rather than leaving the
+// operator to discover it.
+func TestATWBullInputRules(t *testing.T) {
+	h := atwStart(t, "Alice")
+	atwWalk(h, 20) // 1 through 20, so now on the outer bull
+
+	h.assertContains("Outer Bull", "1 = outer bull", "2 = bullseye", "no treble bull")
+
+	// There is no treble bull.
+	h.typeText("3")
+	h.assertContains("no treble bull")
+
+	// The outer bull advances to the bullseye.
+	h.typeText("1")
+	h.press("enter")
+	h.assertContains("Bullseye", "2 = bullseye")
+
+	h.typeText("2")
+	h.press("enter")
+	h.assertContains("round the board in 22 darts", "Finished")
+}
+
+// A bullseye thrown while the outer bull is required is worth both, and ends
+// the run there and then.
+func TestATWBullseyeFromTheOuterBullFinishes(t *testing.T) {
+	h := atwStart(t, "Alice")
+	atwWalk(h, 20)
+	h.assertContains("Outer Bull")
+
+	h.typeText("2")
+	h.press("enter")
+	h.assertContains("round the board in 21 darts")
+}
+
+// Only the darts actually thrown count. Finishing on the second dart of a visit
+// must not charge the player for a third.
+func TestATWPartialFinalVisitCountsTwoDarts(t *testing.T) {
+	h := atwStart(t, "Alice")
+	atwWalk(h, 21) // 21 darts, now on the bullseye
+
+	// Miss, then the bullseye. Keying a third dart is refused: the run is over.
+	h.typeText("02")
+	h.assertContains("round the board in 23 darts")
+	h.typeText("1")
+	h.assertContains("The run is complete")
+
+	h.press("enter")
+	h.assertContains("Alice is round the board in 23 darts")
+}
+
+// The office throws in whatever order people wander up in, and the application
+// must never impose one.
+func TestATWPlayersThrowInAnyOrder(t *testing.T) {
+	h := atwStart(t, "Alice", "Bob", "Chris")
+
+	// Alice twice in a row, then Chris, then Bob, then Alice again.
+	h.typeText("1")
+	h.press("enter")
+	h.typeText("1")
+	h.press("enter")
+	h.assertContains("Ready for Alice on 3")
+
+	h.press("down", "down") // Chris
+	h.typeText("1")
+	h.press("enter")
+	h.press("up") // Bob
+	h.typeText("2")
+	h.press("enter")
+	h.press("up") // Alice
+	h.typeText("1")
+	h.press("enter")
+
+	h.assertContains("Ready for Alice on 4")
+}
+
+// One player completing their run does not end the game.
+func TestATWFinishedPlayerStopsThrowingButTheGameGoesOn(t *testing.T) {
+	h := atwStart(t, "Alice", "Bob")
+	atwWalk(h, 22)
+
+	h.assertContains("Finished")
+	// The cursor has moved to the only player who can still throw.
+	h.assertContains("Ready for Bob on 1")
+	h.assertNotContains("Everyone is round")
+
+	h.typeText("1")
+	h.press("enter")
+	h.assertContains("Ready for Bob on 2")
+}
+
+func TestATWUndoRestoresEverything(t *testing.T) {
+	h := atwStart(t, "Alice")
+
+	h.typeText("111")
+	h.press("enter")
+	h.assertContains("Ready for Alice on 4")
+
+	h.typeText("3")
+	h.press("enter")
+	h.assertContains("Ready for Alice on 7")
+
+	h.press("u")
+	h.assertContains("Undid Alice's visit — back on 4")
+	h.assertContains("Ready for Alice on 4")
+}
+
+// Undoing the visit that completed a run puts the player back in the game.
+func TestATWUndoAFinishedRun(t *testing.T) {
+	h := atwStart(t, "Alice", "Bob")
+	atwWalk(h, 21)
+	h.typeText("2")
+	h.press("enter")
+	h.assertContains("Finished")
+
+	h.press("u")
+	h.assertNotContains("Finished")
+	h.assertContains("Ready for Alice on Bullseye")
+
+	// And they can finish again.
+	h.typeText("2")
+	h.press("enter")
+	h.assertContains("round the board in 22 darts")
+}
+
+// The winner is whoever used fewest darts, not whoever finished first.
+func TestATWWinnerIsFewestDartsNotFirstToFinish(t *testing.T) {
+	h := atwStart(t, "Alice", "Bob")
+
+	// Alice wastes a visit, then goes round: 25 darts, and she finishes first.
+	h.typeText("000")
+	h.press("enter")
+	atwWalk(h, 22)
+	h.assertContains("Finished")
+
+	// Bob goes round cleanly in 22 and finishes second.
+	atwWalk(h, 22)
+
+	h.press("f")
+	h.assertContains("Finish game", "round in 22 darts", "round in 25 darts")
+	h.assertContains("Who won?", "Suggested from the fewest darts")
+
+	h.press("enter") // accept the suggestion
+	h.assertContains("Bob wins", "Start game")
+}
+
+// Two players round in the same number of darts have drawn, and the result is
+// offered as a tie rather than resolved by who threw first.
+func TestATWTiedRunsAreOfferedAsATie(t *testing.T) {
+	h := atwStart(t, "Alice", "Bob")
+	atwWalk(h, 22) // Alice, 22 darts
+	atwWalk(h, 22) // Bob, 22 darts
+
+	h.press("f")
+	h.assertContains("the suggestion is a tie", "Alice and Bob — tied")
+	h.press("enter")
+	h.assertContains("Alice and Bob tie", "Start game")
+}
+
+// The office stops games early all the time, with runs unfinished and players
+// who never threw at all.
+func TestATWFinishEarlyWithNoWinner(t *testing.T) {
+	h := atwStart(t, "Alice", "Bob", "Chris")
+	h.typeText("111")
+	h.press("enter")
+
+	h.press("f")
+	h.assertContains("Nobody completed a run", "did not throw")
+	// An unfinished run reports how far it got, never a dart count as a result.
+	h.assertContains("on 4, 19 to go")
+	h.press("enter")
+	h.assertContains("no winner recorded", "Start game")
+}
+
+func TestATWSoloGameIsTraining(t *testing.T) {
+	h := atwStart(t, "Alice")
+	h.assertContains("Around the World — training")
+
+	atwWalk(h, 22)
+	h.press("f")
+	h.assertContains("Finish training session", "no win is")
+	h.assertNotContains("Who won?")
+	h.press("enter")
+	h.assertContains("Training session saved")
+}
+
+// An in-progress game survives leaving the application and is picked up exactly
+// where it was left, dart counts and all.
+func TestATWLeaveAndResume(t *testing.T) {
+	h := atwStart(t, "Alice", "Bob")
+
+	h.typeText("031")
+	h.press("enter")
+	h.typeText("22")
+	h.press("enter")
+	h.press("down")
+	h.typeText("1")
+	h.press("enter")
+
+	h.press("esc")
+	h.assertContains("Leave this game?")
+	h.press("y")
+	h.assertContains("Game saved")
+
+	h.press("r")
+	h.assertContains("Around the World", "3 visits recorded")
+	h.press("enter")
+
+	// Alice: 1 → 5 → 9, five darts. Bob: 1 → 2, one dart.
+	h.assertContains("Around the World — game")
+	h.assertContains("Ready for Alice on 9")
+}
+
+// Around the World statistics are its own. They must appear on the profile and
+// must not touch the X01 or cricket figures.
+func TestATWStatisticsAreSeparate(t *testing.T) {
+	h := atwStart(t, "Alice", "Bob")
+	atwWalk(h, 22)
+	h.press("f")
+	h.press("enter")
+
+	h.press("p", "enter")
+	for i := 0; i < 16; i++ {
+		h.press("down")
+	}
+	h.assertContains("Around the World")
+	h.assertContains("Runs completed", "Fewest darts to go round", "22")
+	h.assertContains("Targets per dart")
+
+	// The X01 sections are untouched: 22 Around the World darts have not become
+	// part of a three-dart average.
+	for i := 0; i < 16; i++ {
+		h.press("up")
+	}
+	h.assertContains("501")
+	h.assertNotContains("Lifetime 3-dart average")
+}
+
+// The Around the World screens must stay inside the terminal at every size an
+// office monitor is likely to be, including the awkward small ones. Bubble Tea
+// keeps the last height lines of an overflowing view, so one row too many
+// silently costs the header and the scoreboard.
+func TestATWScreensFitTheTerminal(t *testing.T) {
+	h := atwStart(t, "Alice", "Bob", "Christopher")
+	// Part-way round, with a visit half-typed, which is the tallest the screen
+	// gets: scoreboard, spotlight and the entry prompt with its preview.
+	atwWalk(h, 19)
+	h.typeText("12")
+
+	for width := 68; width <= 260; width += 4 {
+		for height := 18; height <= 62; height += 2 {
+			h.resize(width, height)
+			v := h.view()
+			if got := strings.Count(v, "\n") + 1; got > height {
+				t.Fatalf("%dx%d: %d rows", width, height, got)
+			}
+			for _, line := range strings.Split(v, "\n") {
+				if got := len([]rune(ansi.ReplaceAllString(line, ""))); got > width {
+					t.Fatalf("%dx%d: a line of %d columns", width, height, got)
+				}
+			}
+		}
+	}
+}
+
+// The panel gives up its space before the scoreboard and the prompt do, so a
+// short terminal loses the large display and keeps everything it needs.
+func TestATWSpotlightDegradesOnAShortTerminal(t *testing.T) {
+	h := atwStart(t, "Alice", "Bob")
+	h.resize(80, 40)
+	h.assertContains("A L I C E") // the thrower, letter-spaced in the panel
+
+	h.resize(80, 20)
+	h.assertFitsScreen(20)
+	// The target and the thrower are still readable, as ordinary text.
+	h.assertContains("Alice", "Next target")
+	h.assertContains("0 = miss")
 }

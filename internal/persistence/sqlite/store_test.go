@@ -2,10 +2,12 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
 
+	"github.com/BigJabber/dart-tui/internal/domain/atw"
 	"github.com/BigJabber/dart-tui/internal/domain/cricket"
 	"github.com/BigJabber/dart-tui/internal/domain/player"
 	"github.com/BigJabber/dart-tui/internal/domain/stats"
@@ -1108,5 +1110,296 @@ func TestX01LegsCarryTheParticipantCount(t *testing.T) {
 	}
 	if full.X01.LegsCompleted != 2 {
 		t.Errorf("LegsCompleted = %d, want 2 — both checkouts happened", full.X01.LegsCompleted)
+	}
+}
+
+// ---------------------------------------------------- Around the World
+
+// atwRecord plays a visit through the engine and stores it, the way the session
+// does, so the test exercises the pair together.
+func atwRecord(t *testing.T, s *Store, ctx context.Context, gameID int64, g *atw.Game, id int64, notation string) atw.Visit {
+	t.Helper()
+	calls, err := atw.ParseCalls(notation)
+	if err != nil {
+		t.Fatalf("ParseCalls(%q): %v", notation, err)
+	}
+	v, err := g.Record(atw.VisitInput{PlayerID: id, Calls: calls})
+	if err != nil {
+		t.Fatalf("Record(%q): %v", notation, err)
+	}
+	if err := s.AppendATWVisit(ctx, gameID, v); err != nil {
+		t.Fatalf("AppendATWVisit: %v", err)
+	}
+	return v
+}
+
+// An in-progress game must come back exactly as it was left: every target,
+// every dart count, and the individual darts behind them.
+func TestATWGameSurvivesASaveAndReload(t *testing.T) {
+	s, ctx := newStore(t)
+	alice := mustPlayer(t, s, ctx, "Alice")
+	bob := mustPlayer(t, s, ctx, "Bob")
+
+	gameID, err := s.CreateATWGame(ctx, []int64{alice.ID, bob.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := atw.New([]int64{alice.ID, bob.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	atwRecord(t, s, ctx, gameID, live, alice.ID, "031") // → 5
+	atwRecord(t, s, ctx, gameID, live, bob.ID, "000")   // still 1
+	atwRecord(t, s, ctx, gameID, live, alice.ID, "22")  // 5 → 7 → 9
+	atwRecord(t, s, ctx, gameID, live, bob.ID, "1")     // → 2
+
+	rec, err := s.LoadATWGame(ctx, gameID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := rec.Restore()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rec.Status != StatusInProgress {
+		t.Errorf("status = %q, want in progress", rec.Status)
+	}
+	if len(rec.PlayerIDs) != 2 || rec.PlayerIDs[0] != alice.ID {
+		t.Errorf("participants = %v, want Alice then Bob", rec.PlayerIDs)
+	}
+	if restored.VisitCount() != 4 {
+		t.Errorf("visits = %d, want 4", restored.VisitCount())
+	}
+
+	for _, id := range []int64{alice.ID, bob.ID} {
+		want, _ := live.State(id)
+		got, ok := restored.State(id)
+		if !ok {
+			t.Fatalf("no restored state for player %d", id)
+		}
+		if got != want {
+			t.Errorf("player %d restored as %+v, want %+v", id, got, want)
+		}
+	}
+
+	// And the individual darts came back, not just the totals.
+	first := restored.Visits()[0]
+	if len(first.Darts) != 3 {
+		t.Fatalf("first visit has %d darts, want 3", len(first.Darts))
+	}
+	if first.Darts[0].Hit {
+		t.Error("the first dart was a miss")
+	}
+	if first.Darts[1].Notation() != "T1" {
+		t.Errorf("second dart = %q, want T1", first.Darts[1].Notation())
+	}
+	if first.Darts[2].Notation() != "4" {
+		t.Errorf("third dart = %q, want a single 4", first.Darts[2].Notation())
+	}
+}
+
+func TestATWUndoRemovesTheVisitAndItsDarts(t *testing.T) {
+	s, ctx := newStore(t)
+	alice := mustPlayer(t, s, ctx, "Alice")
+
+	gameID, _ := s.CreateATWGame(ctx, []int64{alice.ID})
+	live, _ := atw.New([]int64{alice.ID})
+	atwRecord(t, s, ctx, gameID, live, alice.ID, "111")
+	atwRecord(t, s, ctx, gameID, live, alice.ID, "33")
+
+	if _, err := live.Undo(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteLastATWVisit(ctx, gameID); err != nil {
+		t.Fatal(err)
+	}
+
+	var darts int
+	if err := s.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM atw_darts`).Scan(&darts); err != nil {
+		t.Fatal(err)
+	}
+	if darts != 3 {
+		t.Errorf("%d dart rows remain, want 3 — the undone visit's darts should have gone with it", darts)
+	}
+
+	rec, err := s.LoadATWGame(ctx, gameID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := rec.Restore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := restored.State(alice.ID)
+	if st.Target.String() != "4" || st.Darts != 3 {
+		t.Errorf("restored as %v with %d darts, want target 4 with 3", st.Target, st.Darts)
+	}
+}
+
+// A tie has no single winner, so the game row holds none and both result rows
+// carry the win.
+func TestATWTiedResultIsStoredAgainstBothPlayers(t *testing.T) {
+	s, ctx := newStore(t)
+	alice := mustPlayer(t, s, ctx, "Alice")
+	bob := mustPlayer(t, s, ctx, "Bob")
+
+	gameID, _ := s.CreateATWGame(ctx, []int64{alice.ID, bob.ID})
+	live, _ := atw.New([]int64{alice.ID, bob.ID})
+	for _, id := range []int64{alice.ID, bob.ID} {
+		for i := 0; i < atw.TargetCount; i++ {
+			atwRecord(t, s, ctx, gameID, live, id, "1")
+		}
+	}
+
+	winners := live.SuggestWinners()
+	if len(winners) != 2 {
+		t.Fatalf("suggested %v, want a tie", winners)
+	}
+	if err := live.Finish(winners); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishATWGame(ctx, gameID, winners, live.Results()); err != nil {
+		t.Fatal(err)
+	}
+
+	var winner sql.NullInt64
+	if err := s.DB().QueryRowContext(ctx,
+		`SELECT winner_player_id FROM games WHERE id = ?`, gameID).Scan(&winner); err != nil {
+		t.Fatal(err)
+	}
+	if winner.Valid {
+		t.Errorf("game row names %d as the winner; a tie has no single winner", winner.Int64)
+	}
+
+	results, err := s.GameResults(ctx, gameID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	won := 0
+	for _, r := range results {
+		if r.Won {
+			won++
+		}
+	}
+	if won != 2 {
+		t.Errorf("%d result rows marked as won, want 2", won)
+	}
+
+	// Both players are credited with the win in their statistics.
+	for _, p := range []int64{alice.ID, bob.ID} {
+		ps, err := s.PlayerStats(ctx, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ps.ATW.GamesWon != 1 {
+			t.Errorf("player %d has %d wins, want 1", p, ps.ATW.GamesWon)
+		}
+	}
+
+	// And a reloaded game knows about both.
+	rec, err := s.LoadATWGame(ctx, gameID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Winners) != 2 {
+		t.Errorf("reloaded winners = %v, want two", rec.Winners)
+	}
+}
+
+// The dart outcomes are counted from the stored segments, and Around the World
+// figures must not leak into any other mode.
+func TestATWStatisticsAreDerivedAndIsolated(t *testing.T) {
+	s, ctx := newStore(t)
+	alice := mustPlayer(t, s, ctx, "Alice")
+	bob := mustPlayer(t, s, ctx, "Bob")
+
+	gameID, _ := s.CreateATWGame(ctx, []int64{alice.ID, bob.ID})
+	live, _ := atw.New([]int64{alice.ID, bob.ID})
+
+	// Alice: a miss, a treble and a single, then straight round on singles.
+	atwRecord(t, s, ctx, gameID, live, alice.ID, "031") // 1 dart missed, 1 treble, 1 single
+	atwRecord(t, s, ctx, gameID, live, alice.ID, "2")   // a double
+	for {
+		st, _ := live.State(alice.ID)
+		if st.Finished {
+			break
+		}
+		atwRecord(t, s, ctx, gameID, live, alice.ID, "1")
+	}
+
+	winners := live.SuggestWinners()
+	if err := live.Finish(winners); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishATWGame(ctx, gameID, winners, live.Results()); err != nil {
+		t.Fatal(err)
+	}
+
+	ps, err := s.PlayerStats(ctx, alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := live.State(alice.ID)
+
+	if ps.ATW.Darts != want.Darts {
+		t.Errorf("darts = %d, want %d", ps.ATW.Darts, want.Darts)
+	}
+	if ps.ATW.RunsCompleted != 1 {
+		t.Errorf("runs completed = %d, want 1", ps.ATW.RunsCompleted)
+	}
+	if ps.ATW.BestDarts != want.FinishDarts {
+		t.Errorf("best darts = %d, want %d", ps.ATW.BestDarts, want.FinishDarts)
+	}
+	if ps.ATW.Misses != want.Misses || ps.ATW.Hits != want.Hits {
+		t.Errorf("hits/misses = %d/%d, want %d/%d",
+			ps.ATW.Hits, ps.ATW.Misses, want.Hits, want.Misses)
+	}
+	if ps.ATW.Doubles != want.Doubles || ps.ATW.Trebles != want.Trebles {
+		t.Errorf("doubles/trebles = %d/%d, want %d/%d",
+			ps.ATW.Doubles, ps.ATW.Trebles, want.Doubles, want.Trebles)
+	}
+	if ps.ATW.Singles != want.Singles {
+		t.Errorf("singles = %d, want %d", ps.ATW.Singles, want.Singles)
+	}
+	if ps.ATW.TargetsAdvanced != atw.TargetCount {
+		t.Errorf("targets advanced = %d, want %d", ps.ATW.TargetsAdvanced, atw.TargetCount)
+	}
+
+	// Nothing reached X01 or cricket.
+	if ps.X01.Darts != 0 || ps.X01.GamesPlayed != 0 || ps.X01.Points != 0 {
+		t.Errorf("Around the World darts contaminated the X01 figures: %+v", ps.X01)
+	}
+	if ps.Cricket.Batting.Darts != 0 || ps.Cricket.GamesPlayed != 0 {
+		t.Errorf("Around the World darts contaminated the cricket figures: %+v", ps.Cricket)
+	}
+
+	// Bob never threw, and is recorded honestly rather than dropped.
+	bobStats, err := s.PlayerStats(ctx, bob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bobStats.ATW.GamesPlayed != 1 || bobStats.ATW.RunsCompleted != 0 || bobStats.ATW.Darts != 0 {
+		t.Errorf("Bob = %+v, want one game played, no run, no darts", bobStats.ATW)
+	}
+}
+
+// Loading a game as the wrong kind is refused rather than half-succeeding.
+func TestATWLoadRefusesAnotherMode(t *testing.T) {
+	s, ctx := newStore(t)
+	alice := mustPlayer(t, s, ctx, "Alice")
+
+	x01ID, err := s.CreateX01Game(ctx, x01.DefaultConfig(501), []int64{alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LoadATWGame(ctx, x01ID); !errors.Is(err, ErrWrongMode) {
+		t.Errorf("error = %v, want ErrWrongMode", err)
+	}
+
+	atwID, _ := s.CreateATWGame(ctx, []int64{alice.ID})
+	if _, err := s.LoadX01Game(ctx, atwID); !errors.Is(err, ErrWrongMode) {
+		t.Errorf("error = %v, want ErrWrongMode", err)
 	}
 }

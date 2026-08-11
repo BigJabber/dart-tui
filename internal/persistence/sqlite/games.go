@@ -16,6 +16,7 @@ import (
 const (
 	ModeX01     = "x01"
 	ModeCricket = "cricket"
+	ModeATW     = "atw"
 )
 
 // Game statuses as stored in the games table.
@@ -658,6 +659,7 @@ SELECT g.id, g.mode, g.status, g.created_at, g.finished_at,
        g.winner_player_id, g.outcome,
        (SELECT COUNT(*) FROM x01_visits v WHERE v.game_id = g.id)
      + (SELECT COUNT(*) FROM cricket_events e WHERE e.game_id = g.id)
+     + (SELECT COUNT(*) FROM atw_visits a WHERE a.game_id = g.id)
 FROM games g
 ` + where + `
 ` + order

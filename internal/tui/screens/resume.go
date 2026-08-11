@@ -122,6 +122,12 @@ func (s *ResumeList) resume() tea.Cmd {
 			return Fail(err)
 		}
 		return Replace(NewCricketGame(s.ctx, session))
+	case sqlite.ModeATW:
+		session, err := s.ctx.Services.Games.ResumeATW(s.ctx.Ctx, g.ID)
+		if err != nil {
+			return Fail(err)
+		}
+		return Replace(NewATWGame(s.ctx, session))
 	default:
 		session, err := s.ctx.Services.Games.ResumeX01(s.ctx.Ctx, g.ID)
 		if err != nil {

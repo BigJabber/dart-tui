@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/BigJabber/dart-tui/internal/domain/atw"
 	"github.com/BigJabber/dart-tui/internal/domain/cricket"
 	"github.com/BigJabber/dart-tui/internal/domain/player"
 	"github.com/BigJabber/dart-tui/internal/domain/x01"
@@ -626,5 +627,231 @@ func TestSoloX01SessionIsRecordedAsTraining(t *testing.T) {
 	if stats.X01.Darts != 3 || stats.X01.Points != 101 {
 		t.Errorf("darts/points = %d/%d, want 3/101 — practice still counts",
 			stats.X01.Darts, stats.X01.Points)
+	}
+}
+
+// ---------------------------------------------------- Around the World
+
+func atwThrow(t *testing.T, sess *ATWSession, ctx context.Context, id int64, notation string) atw.Visit {
+	t.Helper()
+	calls, err := atw.ParseCalls(notation)
+	if err != nil {
+		t.Fatalf("ParseCalls(%q): %v", notation, err)
+	}
+	v, err := sess.Record(ctx, atw.VisitInput{PlayerID: id, Calls: calls})
+	if err != nil {
+		t.Fatalf("Record(%q): %v", notation, err)
+	}
+	return v
+}
+
+func TestATWSessionRecordUndoResumeFinish(t *testing.T) {
+	svc, ctx := newServices(t)
+	alice := mustCreate(t, svc, ctx, "Alice")
+	bob := mustCreate(t, svc, ctx, "Bob")
+
+	sess, err := svc.Games.StartATW(ctx, []int64{alice.ID, bob.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gameID := sess.GameID()
+
+	atwThrow(t, sess, ctx, alice.ID, "031") // → 5
+	atwThrow(t, sess, ctx, bob.ID, "1")     // → 2
+	atwThrow(t, sess, ctx, alice.ID, "33")  // 5 → 8 → 11
+
+	st, _ := sess.Game().State(alice.ID)
+	if st.Target.String() != "11" || st.Darts != 5 {
+		t.Fatalf("alice = %v with %d darts, want 11 with 5", st.Target, st.Darts)
+	}
+
+	// Undo takes back only the last visit.
+	if _, err := sess.Undo(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := sess.Game().State(alice.ID); st.Target.String() != "5" {
+		t.Errorf("after undo alice is on %v, want 5", st.Target)
+	}
+	if st, _ := sess.Game().State(bob.ID); st.Target.String() != "2" {
+		t.Errorf("bob's visit was disturbed: %v", st.Target)
+	}
+
+	// Everything survives a reload from disk.
+	resumed, err := svc.Games.ResumeATW(ctx, gameID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Game().VisitCount() != 2 {
+		t.Errorf("resumed with %d visits, want 2", resumed.Game().VisitCount())
+	}
+	if st, _ := resumed.Game().State(alice.ID); st.Target.String() != "5" || st.Darts != 3 {
+		t.Errorf("resumed alice = %v with %d darts, want 5 with 3", st.Target, st.Darts)
+	}
+
+	// Finish it early, with nobody round the board.
+	if err := resumed.Finish(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	games, err := svc.Games.Resumable(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range games {
+		if g.ID == gameID {
+			t.Error("a finished game is still offered for resuming")
+		}
+	}
+}
+
+func TestATWSessionAppearsInTheResumeListWithItsLabel(t *testing.T) {
+	svc, ctx := newServices(t)
+	alice := mustCreate(t, svc, ctx, "Alice")
+
+	sess, err := svc.Games.StartATW(ctx, []int64{alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	atwThrow(t, sess, ctx, alice.ID, "111")
+
+	games, err := svc.Games.Resumable(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(games) != 1 {
+		t.Fatalf("resumable = %d, want 1", len(games))
+	}
+	if games[0].Label != "Around the World" {
+		t.Errorf("label = %q, want %q", games[0].Label, "Around the World")
+	}
+	if games[0].VisitCount != 1 {
+		t.Errorf("visit count = %d, want 1", games[0].VisitCount)
+	}
+}
+
+// An unfinished run is described by how far it got, never by a dart count that
+// could be mistaken for a result.
+func TestATWRecentGamesDescribeRunsHonestly(t *testing.T) {
+	svc, ctx := newServices(t)
+	alice := mustCreate(t, svc, ctx, "Alice")
+	bob := mustCreate(t, svc, ctx, "Bob")
+	chris := mustCreate(t, svc, ctx, "Chris")
+
+	sess, err := svc.Games.StartATW(ctx, []int64{alice.ID, bob.ID, chris.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < atw.TargetCount; i++ {
+		atwThrow(t, sess, ctx, alice.ID, "1")
+	}
+	atwThrow(t, sess, ctx, bob.ID, "11")
+	// Chris never throws.
+
+	winners := sess.Game().SuggestWinners()
+	if len(winners) != 1 || winners[0] != alice.ID {
+		t.Fatalf("suggested %v, want alice", winners)
+	}
+	if err := sess.Finish(ctx, winners); err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(id int64, wantOutcome, wantDetail string) {
+		t.Helper()
+		games, err := svc.Players.RecentGames(ctx, id, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(games) != 1 {
+			t.Fatalf("player %d has %d recent games, want 1", id, len(games))
+		}
+		g := games[0]
+		if g.Label != "Around the World" {
+			t.Errorf("label = %q", g.Label)
+		}
+		if g.Outcome != wantOutcome {
+			t.Errorf("player %d outcome = %q, want %q", id, g.Outcome, wantOutcome)
+		}
+		if g.Detail != wantDetail {
+			t.Errorf("player %d detail = %q, want %q", id, g.Detail, wantDetail)
+		}
+	}
+
+	check(alice.ID, "Won", "round in 22 darts")
+	check(bob.ID, "Lost", "20 targets left")
+	check(chris.ID, "Lost", "did not throw")
+}
+
+func TestATWTieIsReportedAsAWinForBoth(t *testing.T) {
+	svc, ctx := newServices(t)
+	alice := mustCreate(t, svc, ctx, "Alice")
+	bob := mustCreate(t, svc, ctx, "Bob")
+
+	sess, err := svc.Games.StartATW(ctx, []int64{alice.ID, bob.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{alice.ID, bob.ID} {
+		for i := 0; i < atw.TargetCount; i++ {
+			atwThrow(t, sess, ctx, id, "1")
+		}
+	}
+
+	winners := sess.Game().SuggestWinners()
+	if err := sess.Finish(ctx, winners); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []int64{alice.ID, bob.ID} {
+		games, err := svc.Players.RecentGames(ctx, id, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !games[0].Won || games[0].Outcome != "Won" {
+			t.Errorf("player %d = %q (won=%v), want a win", id, games[0].Outcome, games[0].Won)
+		}
+	}
+}
+
+func TestSoloATWSessionIsTraining(t *testing.T) {
+	svc, ctx := newServices(t)
+	alice := mustCreate(t, svc, ctx, "Alice")
+
+	sess, err := svc.Games.StartATW(ctx, []int64{alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sess.Game().Training() {
+		t.Fatal("a one-player game should be training")
+	}
+	for i := 0; i < atw.TargetCount; i++ {
+		atwThrow(t, sess, ctx, alice.ID, "1")
+	}
+
+	if err := sess.Finish(ctx, []int64{alice.ID}); !errors.Is(err, atw.ErrTrainingNoWinner) {
+		t.Fatalf("error = %v, want ErrTrainingNoWinner", err)
+	}
+	if err := sess.Finish(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	games, err := svc.Players.RecentGames(ctx, alice.ID, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if games[0].Outcome != "Training" || games[0].Won {
+		t.Errorf("outcome = %q (won=%v), want Training", games[0].Outcome, games[0].Won)
+	}
+
+	ps, err := svc.Stats.ForPlayer(ctx, alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ps.ATW.GamesPlayed != 0 || ps.ATW.GamesWon != 0 || ps.ATW.TrainingGames != 1 {
+		t.Errorf("played/won/training = %d/%d/%d, want 0/0/1",
+			ps.ATW.GamesPlayed, ps.ATW.GamesWon, ps.ATW.TrainingGames)
+	}
+	// The run itself still counts.
+	if ps.ATW.RunsCompleted != 1 || ps.ATW.BestDarts != atw.TargetCount {
+		t.Errorf("runs/best = %d/%d, want 1/%d",
+			ps.ATW.RunsCompleted, ps.ATW.BestDarts, atw.TargetCount)
 	}
 }
