@@ -7,6 +7,7 @@ import (
 
 	"github.com/BigJabber/dart-tui/internal/domain/cricket"
 	"github.com/BigJabber/dart-tui/internal/domain/player"
+	"github.com/BigJabber/dart-tui/internal/domain/x01"
 	"github.com/BigJabber/dart-tui/internal/persistence/sqlite"
 )
 
@@ -54,7 +55,7 @@ type RecentGame struct {
 	PlayedAt time.Time
 	// Opponents are the other players, for a one-line description.
 	Opponents []player.Player
-	// Outcome is a short word: Won, Lost, Draw or Abandoned.
+	// Outcome is a short word: Won, Lost, Draw, Training or Abandoned.
 	Outcome string
 	Won     bool
 	// Detail is a mode-specific summary, such as "28 darts" or "60 runs".
@@ -139,6 +140,10 @@ func describeResult(rg *RecentGame, g sqlite.GameSummary, results []sqlite.Resul
 	switch {
 	case mine == nil:
 		rg.Outcome = "—"
+	case x01.IsTraining(len(g.ParticipantIDs)):
+		// Thrown alone: neither won nor lost, and said so plainly rather than
+		// left looking like a game that failed to produce a result.
+		rg.Outcome = "Training"
 	case mine.Won:
 		rg.Outcome, rg.Won = "Won", true
 	case g.WinnerPlayerID == nil:

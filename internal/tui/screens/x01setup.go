@@ -180,7 +180,12 @@ func (s *X01Setup) View(width, height int) string {
 	case 0:
 		b.WriteString(styles.Faint.Render("No players selected yet."))
 	case 1:
+		// Say up front that a solo game is training, so nobody finishes a leg
+		// expecting a win to be recorded.
 		b.WriteString(styles.SuccessText.Render("1 player selected — press enter to start."))
+		b.WriteString("\n")
+		b.WriteString(styles.Faint.Render(
+			"On their own this is a training session: statistics are recorded as usual, but no win."))
 	default:
 		b.WriteString(styles.SuccessText.Render(fmt.Sprintf(
 			"%d players selected — press enter to start.", len(s.selected))))

@@ -114,7 +114,7 @@ something to memorise.
 | `Enter` | Record the visit |
 | `y` / `n` | Answer the "finished on a double?" question |
 | `u` | **Undo the last visit** |
-| `f` | Finish the game and confirm the winner |
+| `f` | Finish the game and confirm the winner (a solo game just saves) |
 | `Esc` | Leave (the game is saved and can be resumed) |
 
 ### Playing cricket
@@ -442,6 +442,32 @@ abandoned.
 Players who never threw are stored honestly as incomplete, with zeroes — they are
 never given a fabricated finish.
 
+### Training — playing 301 or 501 alone
+
+Selecting a single player starts a **training session**. The setup screen says so
+before the game begins, and the header says so throughout.
+
+Everything about the throwing is recorded exactly as it would be in a contest:
+every visit, dart, bust and checkout, the three-dart average, legs completed, and
+personal bests such as fewest darts to finish and best game average. Practice
+counts.
+
+What is *not* recorded is a victory. There was nobody to beat, so the finish
+screen offers no winner to choose and simply saves the session. A win is only
+ever awarded when at least two players took part.
+
+Training sessions are also kept out of **games played** and **games won**, and so
+out of the win percentage. Counting a solo leg as a game played with no win would
+make it a recorded defeat, and practising would drag a player's win rate down.
+They are shown separately on the profile as "Training sessions", and appear in
+recent games as `Training` rather than as a game that failed to produce a result.
+
+The rule is applied on every read, from the number of participants stored against
+the game. A solo game recorded by an earlier version with a winner against it is
+therefore already treated as training, with no repair step and no migration.
+
+Cricket has no training mode: it needs two sides to be playable at all.
+
 ## Cricket — the office rules
 
 > ⚠️ **This is not standard darts cricket.** There are no 15–20 numbers and
@@ -611,10 +637,13 @@ thrown in a bust **are** counted, so a bust correctly drags an average down.
 
 ### X01 figures
 
-Games played, games won, win percentage, legs completed, total darts, total
-points, lifetime three-dart average, averages split by 301 and 501, best average
-in a completed leg, fewest darts to finish 301 and 501, highest visit, and counts
-of 100+, 140+ and 180 visits.
+Games played, games won, win percentage, training sessions, legs completed, total
+darts, total points, lifetime three-dart average, averages split by 301 and 501,
+best average in a completed leg, fewest darts to finish 301 and 501, highest
+visit, and counts of 100+, 140+ and 180 visits.
+
+Games played, games won and the win percentage cover contested games only.
+Everything else includes solo practice, because the darts were thrown either way.
 
 High-score counts use credited points, so a visit that busts counts towards
 nothing — which is what happened at the board.
@@ -795,6 +824,10 @@ here so it can be changed easily.
 | Double out is the X01 default, and is configurable for future variants. | `x01.Config.DoubleOut` |
 | A visit landing on zero that the operator does not confirm is recorded as a bust, matching what happens at the board. | `x01.evaluate` |
 | Winner ranking: completed legs first, then fewest darts, then whoever finished first. Never throwing order. | `x01.Game.better` |
+| A game needs two players before a win means anything; alone it is training. | `x01.MinPlayersForWinner` |
+| Training is refused a winner outright rather than having one silently dropped, so a caller that has not handled solo play is told. | `x01.Game.Finish` |
+| Training counts towards every throwing figure, but not towards games played, games won or the win percentage — a solo leg is not a defeat. | `stats.ComputeX01` |
+| Whether a game was training is derived from its stored participants on every read, so old solo games need no migration. | `sqlite.X01LegsForPlayer` |
 | Cricket: both teams restart their player rotation at the top of the order at the start of every innings. | `cricket.startInnings` |
 | X01 checkouts finish on D1-D20 or the inner bull; the outer bull scores 25 but cannot finish. | `darts.Segment.IsFinish` |
 | Curated checkout routes are preferred over the solver's own ranking, and are the whole answer when they exist. | `x01.CheckoutAdvisor.Recommend` |

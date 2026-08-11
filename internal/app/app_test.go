@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -562,5 +563,68 @@ func TestSortKeyCycles(t *testing.T) {
 	}
 	if k != SortByWins {
 		t.Errorf("cycling returned to %v, want SortByWins", k)
+	}
+}
+
+// A solo X01 session is described as training rather than as a game that failed
+// to produce a result, and it never claims a win.
+func TestSoloX01SessionIsRecordedAsTraining(t *testing.T) {
+	svc, ctx := newServices(t)
+	alice := mustCreate(t, svc, ctx, "Alice")
+
+	sess, err := svc.Games.StartX01(ctx, x01.DefaultConfig(101), []int64{alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sess.Game().Training() {
+		t.Fatal("a one-player session should be training")
+	}
+	if _, err := sess.Record(ctx, x01.VisitInput{
+		PlayerID: alice.ID, Points: 101, Darts: 3, ConfirmCheckout: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The session refuses to award a win even if a caller asks for one.
+	winner := alice.ID
+	if err := sess.Finish(ctx, &winner); !errors.Is(err, x01.ErrTrainingNoWinner) {
+		t.Fatalf("Finish(alice) error = %v, want ErrTrainingNoWinner", err)
+	}
+	if err := sess.Finish(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	games, err := svc.Players.RecentGames(ctx, alice.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(games) != 1 {
+		t.Fatalf("recent games = %d, want 1", len(games))
+	}
+	g := games[0]
+	if g.Won || g.Outcome != "Training" {
+		t.Errorf("outcome = %q (won=%v), want Training", g.Outcome, g.Won)
+	}
+	if g.Detail != "out in 3 darts" {
+		t.Errorf("detail = %q, want %q — the leg is still described", g.Detail, "out in 3 darts")
+	}
+	if len(g.Opponents) != 0 {
+		t.Errorf("opponents = %+v, want none", g.Opponents)
+	}
+
+	// And the leaderboard shows the darts without crediting a win.
+	stats, err := svc.Stats.ForPlayer(ctx, alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.X01.GamesWon != 0 || stats.X01.GamesPlayed != 0 {
+		t.Errorf("played/won = %d/%d, want 0/0", stats.X01.GamesPlayed, stats.X01.GamesWon)
+	}
+	if stats.X01.TrainingGames != 1 {
+		t.Errorf("TrainingGames = %d, want 1", stats.X01.TrainingGames)
+	}
+	if stats.X01.Darts != 3 || stats.X01.Points != 101 {
+		t.Errorf("darts/points = %d/%d, want 3/101 — practice still counts",
+			stats.X01.Darts, stats.X01.Points)
 	}
 }

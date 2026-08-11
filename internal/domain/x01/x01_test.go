@@ -719,7 +719,8 @@ func TestPreviewDoesNotRecord(t *testing.T) {
 }
 
 func TestWinnerReturnsCopy(t *testing.T) {
-	g := newGame(t, 40, alice)
+	// Two players, because a solo game cannot be finished with a winner.
+	g := newGame(t, 40, alice, bob)
 	w := alice
 	if err := g.Finish(&w); err != nil {
 		t.Fatal(err)
@@ -728,5 +729,105 @@ func TestWinnerReturnsCopy(t *testing.T) {
 	*got = 999
 	if second := g.Winner(); second == nil || *second != alice {
 		t.Errorf("mutating the returned winner changed the game: %v", second)
+	}
+}
+
+// ------------------------------------------------------------ training games
+
+func TestSoloGameIsTraining(t *testing.T) {
+	if g := newGame(t, Start501, alice); !g.Training() {
+		t.Error("a game with one player is a training session")
+	}
+	if g := newGame(t, Start501, alice, bob); g.Training() {
+		t.Error("a game with two players is a contest")
+	}
+	if g := newGame(t, Start501, alice, bob, carol); g.Training() {
+		t.Error("a game with three players is a contest")
+	}
+}
+
+func TestIsTrainingCountsParticipants(t *testing.T) {
+	for participants, want := range map[int]bool{0: true, 1: true, 2: false, 5: false} {
+		if got := IsTraining(participants); got != want {
+			t.Errorf("IsTraining(%d) = %v, want %v", participants, got, want)
+		}
+	}
+}
+
+func TestTrainingGameSuggestsNoWinner(t *testing.T) {
+	g := newGame(t, 40, alice)
+	checkout(t, g, alice, 40, 2)
+
+	if !state(t, g, alice).Finished {
+		t.Fatal("alice should have checked out")
+	}
+	// The leg was completed perfectly and still suggests nobody, because there
+	// was nobody to beat.
+	if id, ok := g.SuggestWinner(); ok {
+		t.Errorf("training game suggested player %d as winner", id)
+	}
+}
+
+func TestTrainingGameRefusesAWinner(t *testing.T) {
+	g := newGame(t, 40, alice)
+	checkout(t, g, alice, 40, 2)
+
+	w := alice
+	if err := g.Finish(&w); !errors.Is(err, ErrTrainingNoWinner) {
+		t.Fatalf("Finish(alice) error = %v, want ErrTrainingNoWinner", err)
+	}
+	if g.Finished() {
+		t.Error("a refused finish must leave the game open")
+	}
+	if g.Winner() != nil {
+		t.Error("a refused finish must not record a winner")
+	}
+}
+
+func TestTrainingGameFinishesWithoutAWinner(t *testing.T) {
+	g := newGame(t, 40, alice)
+	checkout(t, g, alice, 40, 2)
+
+	if err := g.Finish(nil); err != nil {
+		t.Fatalf("Finish(nil): %v", err)
+	}
+	if !g.Finished() {
+		t.Error("the game should be finished")
+	}
+	if g.Winner() != nil {
+		t.Errorf("training game recorded a winner: %v", g.Winner())
+	}
+
+	// Everything else about the leg is recorded exactly as it would be in a
+	// contest: the darts were still thrown.
+	results := g.Results()
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	r := results[0]
+	if !r.Completed {
+		t.Error("the completed leg should still be recorded as completed")
+	}
+	if r.Won {
+		t.Error("a training leg must not be marked as won")
+	}
+	if r.Darts != 2 || r.Credited != 40 {
+		t.Errorf("training figures not recorded: %+v", r)
+	}
+}
+
+func TestContestStillRecordsAWinner(t *testing.T) {
+	g := newGame(t, 40, alice, bob)
+	checkout(t, g, alice, 40, 2)
+
+	id, ok := g.SuggestWinner()
+	if !ok || id != alice {
+		t.Fatalf("SuggestWinner() = %d, %v; want alice, true", id, ok)
+	}
+	if err := g.Finish(&id); err != nil {
+		t.Fatalf("Finish(alice): %v", err)
+	}
+	if w := g.Winner(); w == nil || *w != alice {
+		t.Errorf("winner = %v, want alice", w)
 	}
 }

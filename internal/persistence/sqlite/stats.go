@@ -48,9 +48,14 @@ ORDER BY v.game_id ASC, v.seq ASC`, playerID)
 }
 
 // X01LegsForPlayer returns a player's outcome in each finished X01 game.
+//
+// The participant count comes from the game's own roster rather than from a
+// stored flag, so a game played alone is recognised as training however old the
+// row is, and no schema change is needed to tell the two apart.
 func (s *Store) X01LegsForPlayer(ctx context.Context, playerID int64) ([]stats.X01Leg, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT r.game_id, g.start_score, r.player_id, r.completed, r.won, r.darts, r.visits, r.points
+SELECT r.game_id, g.start_score, r.player_id, r.completed, r.won, r.darts, r.visits, r.points,
+       (SELECT COUNT(*) FROM game_participants p WHERE p.game_id = g.id)
 FROM game_results r
 JOIN games g ON g.id = r.game_id
 WHERE r.player_id = ? AND g.mode = 'x01' AND g.status = 'finished'
@@ -67,7 +72,7 @@ ORDER BY r.game_id ASC`, playerID)
 			completed, won int
 		)
 		if err := rows.Scan(&l.GameID, &l.StartScore, &l.PlayerID,
-			&completed, &won, &l.Darts, &l.Visits, &l.Credited); err != nil {
+			&completed, &won, &l.Darts, &l.Visits, &l.Credited, &l.Participants); err != nil {
 			return nil, err
 		}
 		l.Completed = completed != 0

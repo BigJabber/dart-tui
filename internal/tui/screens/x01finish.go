@@ -16,16 +16,21 @@ import (
 // The application suggests a winner from the recorded results — completed legs
 // first, fewest darts among them — but never decides. Office games stop for all
 // sorts of reasons, and the operator has the final say.
+//
+// A training game has no winner to confirm, so the screen offers no choice at
+// all and simply saves the session.
 type X01Finish struct {
 	ctx     Context
 	session *app.X01Session
 
 	results []x01.ParticipantResult
 	// options are the selectable winners, plus a "no winner" entry at the end.
+	// A training game has none.
 	options       []int64
 	cursor        components.Cursor
 	suggested     int64
 	hasSuggestion bool
+	training      bool
 }
 
 // NewX01Finish builds the finish screen.
@@ -44,8 +49,14 @@ func (s *X01Finish) Init() tea.Cmd {
 func (s *X01Finish) reload() {
 	game := s.session.Game()
 	s.results = game.Results()
+	s.training = game.Training()
 
 	s.options = s.options[:0]
+	if s.training {
+		s.cursor.SetCount(0)
+		s.suggested, s.hasSuggestion = 0, false
+		return
+	}
 	for _, r := range s.results {
 		s.options = append(s.options, r.PlayerID)
 	}
@@ -70,10 +81,21 @@ func (s *X01Finish) reload() {
 }
 
 // Title names the screen.
-func (s *X01Finish) Title() string { return "Finish game" }
+func (s *X01Finish) Title() string {
+	if s.training {
+		return "Finish training session"
+	}
+	return "Finish game"
+}
 
 // Hints lists the available keys.
 func (s *X01Finish) Hints() []components.KeyHint {
+	if s.training {
+		return []components.KeyHint{
+			{Keys: "enter", Desc: "save and close"},
+			{Keys: "esc", Desc: "back to the game"},
+		}
+	}
 	return []components.KeyHint{
 		{Keys: "↑/↓", Desc: "choose winner"},
 		{Keys: "enter", Desc: "confirm and save"},
@@ -101,20 +123,24 @@ func (s *X01Finish) Update(msg tea.Msg) (Screen, tea.Cmd) {
 }
 
 func (s *X01Finish) finish() tea.Cmd {
-	i := s.cursor.Index()
-	if i < 0 || i >= len(s.options) {
-		return nil
-	}
-
 	var winner *int64
-	if id := s.options[i]; id != 0 {
-		w := id
-		winner = &w
+	if !s.training {
+		i := s.cursor.Index()
+		if i < 0 || i >= len(s.options) {
+			return nil
+		}
+		if id := s.options[i]; id != 0 {
+			w := id
+			winner = &w
+		}
 	}
 	if err := s.session.Finish(s.ctx.Ctx, winner); err != nil {
 		return Fail(err)
 	}
 
+	if s.training {
+		return tea.Batch(PopToRoot(), Success("Training session saved — statistics recorded, no win awarded."))
+	}
 	if winner == nil {
 		return tea.Batch(PopToRoot(), Success("Game saved with no winner recorded."))
 	}
@@ -131,6 +157,18 @@ func (s *X01Finish) View(width, height int) string {
 	b.WriteString("\n\n")
 	b.WriteString(s.resultsTable(width))
 	b.WriteString("\n\n")
+
+	if s.training {
+		b.WriteString(styles.Bold.Render("Training session"))
+		b.WriteString("\n")
+		b.WriteString(styles.Faint.Render(
+			"Only one player took part, so there is nobody to beat and no win is\n" +
+				"recorded. Every dart, average, checkout and personal best from this\n" +
+				"session still counts towards their statistics.\n"))
+		b.WriteString("\n")
+		b.WriteString(styles.SuccessText.Render("Press enter to save and close."))
+		return b.String()
+	}
 
 	b.WriteString(styles.Bold.Render("Who won?"))
 	b.WriteString("\n")

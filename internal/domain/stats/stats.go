@@ -13,6 +13,7 @@ package stats
 import (
 	"github.com/BigJabber/dart-tui/internal/domain/cricket"
 	"github.com/BigJabber/dart-tui/internal/domain/darts"
+	"github.com/BigJabber/dart-tui/internal/domain/x01"
 )
 
 // ---------------------------------------------------------------- X01 input
@@ -36,6 +37,9 @@ type X01Leg struct {
 	GameID     int64
 	StartScore int
 	PlayerID   int64
+	// Participants is how many players took part in the game. It decides
+	// whether the leg was a contest or a solo practice session.
+	Participants int
 	// Completed reports whether the player checked out.
 	Completed bool
 	Won       bool
@@ -47,13 +51,21 @@ type X01Leg struct {
 // Average is the leg's three-dart average.
 func (l X01Leg) Average() float64 { return darts.ThreeDartAverage(l.Credited, l.Darts) }
 
+// Training reports whether the leg was thrown alone, with nobody to beat.
+func (l X01Leg) Training() bool { return x01.IsTraining(l.Participants) }
+
 // --------------------------------------------------------------- X01 output
 
 // X01VariantStats are the figures for a single starting score, such as 501.
 type X01VariantStats struct {
-	StartScore    int
-	GamesPlayed   int
-	GamesWon      int
+	StartScore int
+	// GamesPlayed and GamesWon count contested games only, so the win rate is
+	// not diluted by practice nobody could have won.
+	GamesPlayed int
+	GamesWon    int
+	// TrainingGames counts the solo sessions excluded from the two figures
+	// above. They are reported rather than hidden: the darts were thrown.
+	TrainingGames int
 	LegsCompleted int
 	Darts         int
 	Points        int
@@ -69,9 +81,13 @@ type X01VariantStats struct {
 
 // X01Stats are a player's lifetime X01 figures.
 type X01Stats struct {
-	GamesPlayed   int
-	GamesWon      int
-	WinPercent    float64
+	// GamesPlayed, GamesWon and WinPercent describe contested games only.
+	GamesPlayed int
+	GamesWon    int
+	WinPercent  float64
+	// TrainingGames counts solo practice sessions. Every other figure here
+	// includes them, because the darts were thrown either way.
+	TrainingGames int
 	LegsCompleted int
 	Darts         int
 	Points        int
@@ -114,6 +130,12 @@ func (s X01Stats) FewestDarts(startScore int) (int, bool) {
 // Visits supply the scoring detail — darts, points, high-score counts — while
 // legs supply the game-level outcomes. Both are expected to be pre-filtered to
 // the player in question.
+//
+// Solo practice is treated as throwing rather than as a contest. Its visits,
+// darts, averages, completed legs and personal bests all count normally — they
+// are a record of what the player can do at the board — but it is kept out of
+// games played and games won, because a game nobody else entered can neither be
+// won nor lost, and counting it as a loss would punish practising.
 func ComputeX01(visits []X01Visit, legs []X01Leg) X01Stats {
 	s := X01Stats{ByStart: map[int]X01VariantStats{}}
 
@@ -153,20 +175,27 @@ func ComputeX01(visits []X01Visit, legs []X01Leg) X01Stats {
 	}
 
 	for _, l := range legs {
-		s.GamesPlayed++
-		if l.Won {
-			s.GamesWon++
+		// A win is only recognised in a contested game. Older databases may hold
+		// a solo game with a winner stored against it; it is ignored here rather
+		// than migrated away, because the visit log it was derived from is
+		// intact and the rule can be applied on every read.
+		training := l.Training()
+		won := l.Won && !training
+
+		vs := variant(l.StartScore)
+		if training {
+			s.TrainingGames++
+			vs.TrainingGames++
+		} else {
+			s.GamesPlayed++
+			vs.GamesPlayed++
+			if won {
+				s.GamesWon++
+				vs.GamesWon++
+			}
 		}
 		if l.Completed {
 			s.LegsCompleted++
-		}
-
-		vs := variant(l.StartScore)
-		vs.GamesPlayed++
-		if l.Won {
-			vs.GamesWon++
-		}
-		if l.Completed {
 			vs.LegsCompleted++
 
 			if vs.FewestDarts == 0 || l.Darts < vs.FewestDarts {
@@ -324,6 +353,10 @@ type PlayerStats struct {
 func (p PlayerStats) TotalGamesPlayed() int {
 	return p.X01.GamesPlayed + p.Cricket.GamesPlayed
 }
+
+// TotalTrainingGames counts solo practice sessions. Only X01 can be played
+// alone; cricket needs two sides.
+func (p PlayerStats) TotalTrainingGames() int { return p.X01.TrainingGames }
 
 // TotalGamesWon counts wins across both modes.
 func (p PlayerStats) TotalGamesWon() int {

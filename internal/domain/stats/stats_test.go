@@ -29,8 +29,8 @@ func TestComputeX01Lifetime(t *testing.T) {
 	)
 
 	legs := []X01Leg{
-		{GameID: 1, StartScore: 501, PlayerID: player, Completed: true, Won: true, Darts: 28, Visits: 10, Credited: 501},
-		{GameID: 2, StartScore: 301, PlayerID: player, Completed: false, Won: false, Darts: 6, Visits: 2, Credited: 240},
+		{GameID: 1, StartScore: 501, PlayerID: player, Participants: 2, Completed: true, Won: true, Darts: 28, Visits: 10, Credited: 501},
+		{GameID: 2, StartScore: 301, PlayerID: player, Participants: 2, Completed: false, Won: false, Darts: 6, Visits: 2, Credited: 240},
 	}
 
 	s := ComputeX01(visits, legs)
@@ -83,8 +83,8 @@ func TestComputeX01SplitsByStartingScore(t *testing.T) {
 		{GameID: 2, StartScore: 301, PlayerID: player, Credited: 40, Darts: 3},
 	}
 	legs := []X01Leg{
-		{GameID: 1, StartScore: 501, PlayerID: player, Completed: true, Won: true, Darts: 3, Credited: 100},
-		{GameID: 2, StartScore: 301, PlayerID: player, Completed: false, Darts: 3, Credited: 40},
+		{GameID: 1, StartScore: 501, PlayerID: player, Participants: 2, Completed: true, Won: true, Darts: 3, Credited: 100},
+		{GameID: 2, StartScore: 301, PlayerID: player, Participants: 2, Completed: false, Darts: 3, Credited: 40},
 	}
 	s := ComputeX01(visits, legs)
 
@@ -113,10 +113,10 @@ func TestComputeX01SplitsByStartingScore(t *testing.T) {
 
 func TestFewestDartsPerVariant(t *testing.T) {
 	legs := []X01Leg{
-		{GameID: 1, StartScore: 501, PlayerID: player, Completed: true, Darts: 30, Credited: 501},
-		{GameID: 2, StartScore: 501, PlayerID: player, Completed: true, Darts: 28, Credited: 501},
-		{GameID: 3, StartScore: 501, PlayerID: player, Completed: false, Darts: 12, Credited: 200},
-		{GameID: 4, StartScore: 301, PlayerID: player, Completed: true, Darts: 21, Credited: 301},
+		{GameID: 1, StartScore: 501, PlayerID: player, Participants: 2, Completed: true, Darts: 30, Credited: 501},
+		{GameID: 2, StartScore: 501, PlayerID: player, Participants: 2, Completed: true, Darts: 28, Credited: 501},
+		{GameID: 3, StartScore: 501, PlayerID: player, Participants: 2, Completed: false, Darts: 12, Credited: 200},
+		{GameID: 4, StartScore: 301, PlayerID: player, Participants: 2, Completed: true, Darts: 21, Credited: 301},
 	}
 	s := ComputeX01(nil, legs)
 
@@ -143,7 +143,7 @@ func TestFewestDartsPerVariant(t *testing.T) {
 // were thrown in it.
 func TestIncompleteLegDoesNotSetRecords(t *testing.T) {
 	legs := []X01Leg{
-		{GameID: 1, StartScore: 501, PlayerID: player, Completed: false, Darts: 3, Credited: 180},
+		{GameID: 1, StartScore: 501, PlayerID: player, Participants: 2, Completed: false, Darts: 3, Credited: 180},
 	}
 	s := ComputeX01(nil, legs)
 	if _, ok := s.FewestDarts(501); ok {
@@ -310,4 +310,112 @@ func TestPlayerStatsTotals(t *testing.T) {
 
 	empty := PlayerStats{}
 	closeTo(t, "empty win percent", empty.TotalWinPercent(), 0)
+}
+
+// -------------------------------------------------------------- training X01
+
+// A solo session is practice, not a contest. It must not count towards games
+// played or won — otherwise practising alone would look like losing — but every
+// figure that describes throwing has to include it.
+func TestTrainingGamesAreExcludedFromTheWinRate(t *testing.T) {
+	const player int64 = 1
+	legs := []X01Leg{
+		{GameID: 1, StartScore: 501, PlayerID: player, Participants: 2, Completed: true, Won: true, Darts: 21, Credited: 501},
+		{GameID: 2, StartScore: 501, PlayerID: player, Participants: 1, Completed: true, Darts: 18, Credited: 501},
+		{GameID: 3, StartScore: 501, PlayerID: player, Participants: 1, Completed: false, Darts: 9, Credited: 300},
+	}
+	s := ComputeX01(nil, legs)
+
+	if s.GamesPlayed != 1 {
+		t.Errorf("GamesPlayed = %d, want 1 — the two solo sessions are not contests", s.GamesPlayed)
+	}
+	if s.GamesWon != 1 {
+		t.Errorf("GamesWon = %d, want 1", s.GamesWon)
+	}
+	if s.WinPercent != 100 {
+		t.Errorf("WinPercent = %v, want 100 — practice must not dilute the win rate", s.WinPercent)
+	}
+	if s.TrainingGames != 2 {
+		t.Errorf("TrainingGames = %d, want 2", s.TrainingGames)
+	}
+
+	// The throwing figures include the practice.
+	if s.LegsCompleted != 2 {
+		t.Errorf("LegsCompleted = %d, want 2 — a practice checkout is still a checkout", s.LegsCompleted)
+	}
+	v, ok := s.Variant(501)
+	if !ok {
+		t.Fatal("no 501 figures")
+	}
+	if v.GamesPlayed != 1 || v.GamesWon != 1 || v.TrainingGames != 2 {
+		t.Errorf("501 played/won/training = %d/%d/%d, want 1/1/2",
+			v.GamesPlayed, v.GamesWon, v.TrainingGames)
+	}
+	if v.FewestDarts != 18 || v.FewestDartsGameID != 2 {
+		t.Errorf("fewest darts = %d (game %d), want 18 (game 2) — a personal best set alone still counts",
+			v.FewestDarts, v.FewestDartsGameID)
+	}
+}
+
+// A win stored against a solo game — which older databases can contain, and
+// which the engine now refuses to create — is ignored rather than counted.
+func TestTrainingGameCannotContributeAWin(t *testing.T) {
+	const player int64 = 1
+	s := ComputeX01(nil, []X01Leg{
+		{GameID: 1, StartScore: 301, PlayerID: player, Participants: 1, Completed: true, Won: true, Darts: 15, Credited: 301},
+	})
+
+	if s.GamesWon != 0 {
+		t.Errorf("GamesWon = %d, want 0", s.GamesWon)
+	}
+	if s.GamesPlayed != 0 {
+		t.Errorf("GamesPlayed = %d, want 0", s.GamesPlayed)
+	}
+	if s.WinPercent != 0 {
+		t.Errorf("WinPercent = %v, want 0", s.WinPercent)
+	}
+	if s.TrainingGames != 1 {
+		t.Errorf("TrainingGames = %d, want 1", s.TrainingGames)
+	}
+}
+
+// Visits are the record of what happened at the board and are counted whoever
+// else was playing.
+func TestTrainingVisitsCountTowardsAverages(t *testing.T) {
+	const player int64 = 1
+	visits := []X01Visit{
+		{GameID: 1, StartScore: 501, PlayerID: player, Credited: 180, Darts: 3},
+		{GameID: 1, StartScore: 501, PlayerID: player, Credited: 140, Darts: 3},
+	}
+	legs := []X01Leg{
+		{GameID: 1, StartScore: 501, PlayerID: player, Participants: 1, Darts: 6, Credited: 320},
+	}
+	s := ComputeX01(visits, legs)
+
+	if s.Darts != 6 || s.Points != 320 {
+		t.Errorf("darts/points = %d/%d, want 6/320", s.Darts, s.Points)
+	}
+	if s.OneEighties != 1 || s.Ton40s != 2 || s.HighestVisit != 180 {
+		t.Errorf("high scores from practice were dropped: %+v", s)
+	}
+	closeTo(t, "training average", s.Average, 160)
+}
+
+func TestLegKnowsWhetherItWasTraining(t *testing.T) {
+	if !(X01Leg{Participants: 1}).Training() {
+		t.Error("a one-participant leg is training")
+	}
+	if (X01Leg{Participants: 2}).Training() {
+		t.Error("a two-participant leg is a contest")
+	}
+}
+
+func TestTotalTrainingGames(t *testing.T) {
+	p := PlayerStats{X01: X01Stats{GamesPlayed: 3, GamesWon: 2, TrainingGames: 4}}
+	if got := p.TotalTrainingGames(); got != 4 {
+		t.Errorf("TotalTrainingGames() = %d, want 4", got)
+	}
+	if got := p.TotalGamesPlayed(); got != 3 {
+		t.Errorf("TotalGamesPlayed() = %d, want 3 — training is not a game played", got)
+	}
 }

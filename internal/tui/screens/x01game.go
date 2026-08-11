@@ -94,9 +94,14 @@ func NewX01Game(ctx Context, session *app.X01Session) *X01Game {
 // Init does nothing; the session is already loaded.
 func (s *X01Game) Init() tea.Cmd { return nil }
 
-// Title names the screen.
+// Title names the screen. A solo game is labelled training in the header, where
+// it stays visible for the whole session rather than only at the finish.
 func (s *X01Game) Title() string {
-	return fmt.Sprintf("%d — game %d", s.session.Game().Config().StartScore, s.session.GameID())
+	cfg := s.session.Game().Config()
+	if s.session.Game().Training() {
+		return fmt.Sprintf("%d — training %d", cfg.StartScore, s.session.GameID())
+	}
+	return fmt.Sprintf("%d — game %d", cfg.StartScore, s.session.GameID())
 }
 
 // Hints lists the keys available in the current phase.
@@ -673,8 +678,13 @@ func (s *X01Game) scoreboard(width int) string {
 
 	out := table.View()
 	if game.AllFinished() {
-		out += "\n" + styles.SuccessText.Render(
-			"Everyone has checked out — press f to finish and confirm the winner.")
+		if game.Training() {
+			out += "\n" + styles.SuccessText.Render(
+				"Checked out — press f to save the training session.")
+		} else {
+			out += "\n" + styles.SuccessText.Render(
+				"Everyone has checked out — press f to finish and confirm the winner.")
+		}
 	}
 	return out
 }
@@ -691,7 +701,13 @@ func (s *X01Game) idlePanel(width int) string {
 		p := s.session.Player(id)
 		b.WriteString("Ready for ")
 		b.WriteString(styles.PlayerName(p.Colour, true).Render(p.Name))
-		b.WriteString(styles.Faint.Render(" — type their score, or ↑/↓ to pick someone else."))
+		// Throwing alone there is nobody to switch to, so the prompt does not
+		// offer it.
+		if s.session.Game().Training() {
+			b.WriteString(styles.Faint.Render(" — type their score."))
+		} else {
+			b.WriteString(styles.Faint.Render(" — type their score, or ↑/↓ to pick someone else."))
+		}
 		if st, ok := s.session.Game().State(id); ok {
 			if advice := s.checkoutAdvice(p.Colour, st.Score); advice != "" {
 				b.WriteString("\n\n")

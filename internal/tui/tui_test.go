@@ -375,13 +375,88 @@ func TestX01FewestDartsRecordedInProfile(t *testing.T) {
 	h.press("enter")
 	h.press("y") // confirm the double
 	h.press("f")
-	h.press("enter") // accept the suggested winner
+	h.press("enter") // save the training session
 
-	// Her profile shows the 28-dart leg and a matching average.
+	// Her profile shows the 28-dart leg and a matching average. She threw alone,
+	// so it counts as practice rather than as a game won.
 	h.press("p", "enter")
 	h.assertContains("Fewest darts to finish", "28")
 	h.assertContains("Legs completed", "1")
-	h.assertContains("Games won", "1")
+	h.assertContains("Training sessions", "1")
+}
+
+// ------------------------------------------------------------ training games
+
+// A player practising alone has their throwing recorded in full, but no victory
+// is invented for them.
+func TestX01SoloGameIsTrainingWithNoWinner(t *testing.T) {
+	h := newHarness(t)
+	h.addPlayer("Alice")
+
+	h.press("s", "5")
+	h.assertContains("choose players")
+	h.press("space")
+
+	// The setup screen says what a solo game means before it starts.
+	h.assertContains("1 player selected", "training session")
+	h.press("enter")
+
+	// The header keeps saying so for the whole session.
+	h.assertContains("501 — training")
+
+	for i := 0; i < 9; i++ {
+		h.typeText("55")
+		h.press("enter")
+	}
+	h.typeText("6")
+	h.press("tab", "tab")
+	h.press("enter")
+	h.press("y")
+	h.assertContains("checked out")
+
+	// Finishing offers no winner to choose — there is nobody to have beaten.
+	h.press("f")
+	h.assertContains("Finish training session", "Training session", "no win is")
+	h.assertNotContains("Who won?")
+	h.assertNotContains("(suggested)")
+
+	h.press("enter")
+	h.assertContains("Training session saved", "Start game")
+
+	// The profile counts the darts but not a win.
+	h.press("p", "enter")
+	h.assertContains("Training sessions", "Solo practice is not counted")
+	h.assertContains("Legs completed", "1")
+}
+
+// The same leg thrown against somebody else still produces a winner, so the
+// training rule has not weakened ordinary play.
+func TestX01TwoPlayerGameStillRecordsAWin(t *testing.T) {
+	h := newHarness(t)
+	h.addPlayer("Alice")
+	h.addPlayer("Bob")
+
+	h.press("s", "5")
+	h.press("space", "down", "space", "enter")
+	h.assertContains("501 — game")
+
+	for i := 0; i < 9; i++ {
+		h.typeText("55")
+		h.press("enter")
+	}
+	h.typeText("6")
+	h.press("tab", "tab")
+	h.press("enter")
+	h.press("y")
+
+	h.press("f")
+	h.assertContains("Who won?", "suggested")
+	h.press("enter")
+	h.assertContains("wins")
+
+	h.press("p", "enter")
+	h.assertContains("Games won", "Fewest darts to finish", "28")
+	h.assertNotContains("Training sessions")
 }
 
 func TestX01BustIsReportedAndScoreRestored(t *testing.T) {

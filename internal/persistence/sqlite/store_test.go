@@ -8,6 +8,7 @@ import (
 
 	"github.com/BigJabber/dart-tui/internal/domain/cricket"
 	"github.com/BigJabber/dart-tui/internal/domain/player"
+	"github.com/BigJabber/dart-tui/internal/domain/stats"
 	"github.com/BigJabber/dart-tui/internal/domain/x01"
 )
 
@@ -1029,5 +1030,83 @@ func TestPlayerStatsForNewPlayerIsEmpty(t *testing.T) {
 	}
 	if got.TotalGamesPlayed() != 0 || got.X01.Average != 0 {
 		t.Errorf("a new player should have empty stats, got %+v", got)
+	}
+}
+
+// The participant count is read back from the game's roster, so training is
+// recognised from the data already stored rather than from a flag that would
+// have to be added to every existing row.
+func TestX01LegsCarryTheParticipantCount(t *testing.T) {
+	s, ctx := newStore(t)
+	alice := mustPlayer(t, s, ctx, "Alice")
+	bob := mustPlayer(t, s, ctx, "Bob")
+
+	cfg := x01.DefaultConfig(101)
+
+	// A solo session.
+	soloID, err := s.CreateX01Game(ctx, cfg, []int64{alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	solo, _ := x01.New(cfg, []int64{alice.ID})
+	v, err := solo.Record(x01.VisitInput{PlayerID: alice.ID, Points: 101, Darts: 3, ConfirmCheckout: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendX01Visit(ctx, soloID, v); err != nil {
+		t.Fatal(err)
+	}
+	if err := solo.Finish(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishX01Game(ctx, soloID, nil, solo.Results()); err != nil {
+		t.Fatal(err)
+	}
+
+	// A contest.
+	pairID, _ := s.CreateX01Game(ctx, cfg, []int64{alice.ID, bob.ID})
+	pair, _ := x01.New(cfg, []int64{alice.ID, bob.ID})
+	v, _ = pair.Record(x01.VisitInput{PlayerID: alice.ID, Points: 101, Darts: 3, ConfirmCheckout: true})
+	if err := s.AppendX01Visit(ctx, pairID, v); err != nil {
+		t.Fatal(err)
+	}
+	winner := alice.ID
+	if err := pair.Finish(&winner); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishX01Game(ctx, pairID, &winner, pair.Results()); err != nil {
+		t.Fatal(err)
+	}
+
+	legs, err := s.X01LegsForPlayer(ctx, alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(legs) != 2 {
+		t.Fatalf("Alice has %d legs, want 2", len(legs))
+	}
+
+	byGame := map[int64]stats.X01Leg{}
+	for _, l := range legs {
+		byGame[l.GameID] = l
+	}
+	if got := byGame[soloID]; got.Participants != 1 || !got.Training() || got.Won {
+		t.Errorf("solo leg = %+v, want 1 participant, training, not won", got)
+	}
+	if got := byGame[pairID]; got.Participants != 2 || got.Training() || !got.Won {
+		t.Errorf("contested leg = %+v, want 2 participants, not training, won", got)
+	}
+
+	// And the figures derived from them keep practice out of the win rate.
+	full, err := s.PlayerStats(ctx, alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.X01.GamesPlayed != 1 || full.X01.GamesWon != 1 || full.X01.TrainingGames != 1 {
+		t.Errorf("played/won/training = %d/%d/%d, want 1/1/1",
+			full.X01.GamesPlayed, full.X01.GamesWon, full.X01.TrainingGames)
+	}
+	if full.X01.LegsCompleted != 2 {
+		t.Errorf("LegsCompleted = %d, want 2 — both checkouts happened", full.X01.LegsCompleted)
 	}
 }

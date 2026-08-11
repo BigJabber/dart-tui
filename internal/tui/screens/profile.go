@@ -368,8 +368,18 @@ func (s *PlayerProfile) lifetimeSection() string {
 	b.WriteString(field("Games played", fmt.Sprintf("%d", s.stats.TotalGamesPlayed())))
 	b.WriteString(field("Games won", fmt.Sprintf("%d (%.0f%%)",
 		s.stats.TotalGamesWon(), s.stats.TotalWinPercent())))
+	if training := s.stats.TotalTrainingGames(); training > 0 {
+		b.WriteString(field("Training sessions", fmt.Sprintf("%d", training)))
+		// The newline goes outside Render: a trailing newline inside makes
+		// Lip Gloss pad an empty final line to the block's width, which the next
+		// line then starts after.
+		b.WriteString(styles.Faint.Render(
+			"  Solo practice is not counted above — there was nobody to beat."))
+		b.WriteString("\n")
+	}
 	b.WriteString(styles.Faint.Render(
-		"  X01 and cricket are counted together here but never averaged together.\n"))
+		"  X01 and cricket are counted together here but never averaged together."))
+	b.WriteString("\n")
 	return b.String()
 }
 
@@ -379,13 +389,16 @@ func (s *PlayerProfile) x01Section(startScore int) string {
 	b.WriteString("\n")
 
 	v, ok := s.stats.X01.Variant(startScore)
-	if !ok || v.GamesPlayed == 0 {
+	if !ok || v.GamesPlayed+v.TrainingGames == 0 {
 		b.WriteString(styles.Faint.Render("  No completed games yet.\n"))
 		return b.String()
 	}
 
 	b.WriteString(field("Games played", fmt.Sprintf("%d", v.GamesPlayed)))
 	b.WriteString(field("Games won", fmt.Sprintf("%d", v.GamesWon)))
+	if v.TrainingGames > 0 {
+		b.WriteString(field("Training sessions", fmt.Sprintf("%d", v.TrainingGames)))
+	}
 	b.WriteString(field("Legs completed", fmt.Sprintf("%d", v.LegsCompleted)))
 	b.WriteString(field("Darts thrown", fmt.Sprintf("%d", v.Darts)))
 	b.WriteString(field("Points scored", fmt.Sprintf("%d", v.Points)))

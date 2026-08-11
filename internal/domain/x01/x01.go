@@ -46,6 +46,21 @@ const (
 	Start501 = 501
 )
 
+// MinPlayersForWinner is how many participants a game needs before winning it
+// means anything.
+//
+// A player practising alone is playing the board, not an opponent. Their darts,
+// averages and checkouts are worth recording exactly as they would be in a
+// contest, but there is nobody to beat, so no victory is awarded.
+const MinPlayersForWinner = 2
+
+// IsTraining reports whether a game with this many participants is a solo
+// practice session rather than a contest.
+//
+// This lives here, beside the rule it encodes, so the screens, the statistics
+// and the stored results all agree on what counts as training.
+func IsTraining(participants int) bool { return participants < MinPlayersForWinner }
+
 // VisitInput is what the operator records for one turn at the board.
 type VisitInput struct {
 	// PlayerID names the thrower. Any active, unfinished participant is valid
@@ -127,6 +142,7 @@ var (
 	ErrBadDartCount     = errors.New("darts thrown must be 1, 2 or 3")
 	ErrImpossibleScore  = errors.New("that score cannot be thrown with that many darts")
 	ErrWinnerNotPlaying = errors.New("the winner must be one of the players in this game")
+	ErrTrainingNoWinner = errors.New("a training game has no winner to record")
 )
 
 // Game is an X01 game in progress or finished.
@@ -167,6 +183,10 @@ func (g *Game) Config() Config { return g.cfg }
 
 // Order returns the player IDs in selection order.
 func (g *Game) Order() []int64 { return append([]int64(nil), g.order...) }
+
+// Training reports whether this game is a solo practice session. A training
+// game is scored, saved and counted like any other, but cannot be won.
+func (g *Game) Training() bool { return IsTraining(len(g.order)) }
 
 // Visits returns the recorded visit log, oldest first.
 func (g *Game) Visits() []Visit { return append([]Visit(nil), g.visits...) }
@@ -480,7 +500,12 @@ func (g *Game) better(a, b ParticipantResult) bool {
 // SuggestWinner proposes a winner from the recorded results. It never guesses
 // from throwing order: only a completed leg can suggest a winner, and the
 // fewest darts wins. The operator always confirms or overrides the suggestion.
+//
+// A training game never suggests anybody, however well the leg was thrown.
 func (g *Game) SuggestWinner() (int64, bool) {
+	if g.Training() {
+		return 0, false
+	}
 	results := g.Results()
 	if len(results) == 0 || !results[0].Completed {
 		return 0, false
@@ -494,11 +519,18 @@ func (g *Game) SuggestWinner() (int64, bool) {
 //
 // The game does not finish by itself when a player reaches zero — other players
 // may still complete their own legs, and only the operator decides when to stop.
+//
+// A training game must be finished with no winner. The attempt is refused
+// rather than quietly ignored, so a caller that has not accounted for solo play
+// is told about it instead of silently recording nothing.
 func (g *Game) Finish(winner *int64) error {
 	if g.finished {
 		return ErrGameFinished
 	}
 	if winner != nil {
+		if g.Training() {
+			return ErrTrainingNoWinner
+		}
 		if _, ok := g.states[*winner]; !ok {
 			return ErrWinnerNotPlaying
 		}
