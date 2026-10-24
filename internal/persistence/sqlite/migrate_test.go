@@ -115,6 +115,10 @@ func TestUpgradeFromVersionOneKeepsEveryGame(t *testing.T) {
 	if len(rec.Visits) != 1 {
 		t.Errorf("visits = %d, want 1", len(rec.Visits))
 	}
+	// Games from before auto-swap existed were played without it.
+	if rec.AutoSwap {
+		t.Error("an upgraded game came back with auto-swap on")
+	}
 	results, err := upgraded.GameResults(ctx, finishedID)
 	if err != nil {
 		t.Fatal(err)

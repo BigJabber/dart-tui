@@ -88,6 +88,9 @@ func NewX01Game(ctx Context, session *app.X01Session) *X01Game {
 	}
 	s.cursor.SetCount(len(session.Order()))
 	s.selectFirstActive()
+	// A resumed game with auto-swap on picks up with whoever is next in the
+	// sequence, not whoever happens to be first in it.
+	s.autoAdvance()
 	return s
 }
 
@@ -138,6 +141,7 @@ func (s *X01Game) Hints() []components.KeyHint {
 			{Keys: "0-9", Desc: "enter their score"},
 			{Keys: "=", Desc: "add darts up"},
 			{Keys: "u", Desc: "undo last visit"},
+			{Keys: "s", Desc: autoSwapHint(s.session.AutoSwap())},
 			{Keys: "f", Desc: "finish game"},
 			{Keys: "esc", Desc: "leave"},
 		}
@@ -262,6 +266,8 @@ func (s *X01Game) updateIdle(key tea.KeyMsg) (Screen, tea.Cmd) {
 		return s, s.openCalculator("", false)
 	case "u":
 		return s, s.undo()
+	case "s":
+		return s, s.toggleAutoSwap()
 	case "f":
 		return s, Push(NewX01Finish(s.ctx, s.session))
 	case "enter", " ":
@@ -426,17 +432,20 @@ func (s *X01Game) record(confirmCheckout bool) tea.Cmd {
 	case visit.Checkout:
 		s.lastVisit = fmt.Sprintf("%s checked out with %d in %d %s",
 			name, visit.Points, visit.Darts, dartWord)
-		// The cursor stays put deliberately: the game does not end here, and
-		// the operator chooses who throws next.
+		// The game does not end here. Without auto-swap the operator chooses
+		// who throws next, so the cursor only moves off the finished player.
 		s.selectFirstActive()
+		s.autoAdvance()
 		return Success(s.lastVisit + " — press f to finish the game when you are ready")
 	case visit.Bust:
 		s.lastVisit = fmt.Sprintf("%s BUST on %d (%d %s) — back to %d",
 			name, visit.Points, visit.Darts, dartWord, visit.ScoreAfter)
+		s.autoAdvance()
 		return Warn(s.lastVisit)
 	default:
 		s.lastVisit = fmt.Sprintf("%s scored %d with %d %s — %d left",
 			name, visit.Points, visit.Darts, dartWord, visit.ScoreAfter)
+		s.autoAdvance()
 		return Status(s.lastVisit)
 	}
 }
@@ -452,6 +461,28 @@ func (s *X01Game) undo() tea.Cmd {
 	name := s.session.Player(visit.PlayerID).Name
 	s.lastVisit = ""
 	return Success(fmt.Sprintf("Undid %s's visit of %d — re-enter it now", name, visit.Points))
+}
+
+// toggleAutoSwap turns automatic player swapping on or off for this game.
+// Turning it on moves straight to whoever is next in sequence.
+func (s *X01Game) toggleAutoSwap() tea.Cmd {
+	on := !s.session.AutoSwap()
+	if err := s.session.SetAutoSwap(s.ctx.Ctx, on); err != nil {
+		return Fail(err)
+	}
+	s.autoAdvance()
+	return Status(autoSwapStatus(on))
+}
+
+// autoAdvance selects the next player in sequence when auto-swap is on. It is
+// only ever a selection: the operator can still pick anybody with ↑/↓.
+func (s *X01Game) autoAdvance() {
+	if !s.session.AutoSwap() {
+		return
+	}
+	if id, ok := s.session.NextThrower(); ok {
+		s.selectPlayer(id)
+	}
 }
 
 // ------------------------------------------------------------------ cursor

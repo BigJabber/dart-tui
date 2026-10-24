@@ -20,6 +20,9 @@ type ATWGameRecord struct {
 	CreatedAt  time.Time
 	FinishedAt *time.Time
 	Winners    []int64
+	// AutoSwap is whether the scoreboard moves to the next player in sequence
+	// after each visit.
+	AutoSwap bool
 }
 
 // Restore turns the record back into a live engine by replaying its darts.
@@ -109,10 +112,11 @@ func (s *Store) LoadATWGame(ctx context.Context, gameID int64) (*ATWGameRecord, 
 		mode       string
 		created    string
 		finishedAt sql.NullString
+		autoSwap   int
 	)
 	err := s.db.QueryRowContext(ctx, `
-SELECT mode, status, created_at, finished_at FROM games WHERE id = ?`, gameID).
-		Scan(&mode, &rec.Status, &created, &finishedAt)
+SELECT mode, status, created_at, finished_at, auto_swap FROM games WHERE id = ?`, gameID).
+		Scan(&mode, &rec.Status, &created, &finishedAt, &autoSwap)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: game %d", ErrNotFound, gameID)
 	}
@@ -127,6 +131,7 @@ SELECT mode, status, created_at, finished_at FROM games WHERE id = ?`, gameID).
 		return nil, fmt.Errorf("game %d has an unreadable created date: %w", gameID, err)
 	}
 	rec.FinishedAt = parseNullTime(finishedAt)
+	rec.AutoSwap = autoSwap != 0
 
 	if rec.PlayerIDs, err = participantIDs(ctx, s.db, gameID); err != nil {
 		return nil, err

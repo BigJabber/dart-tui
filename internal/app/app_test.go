@@ -855,3 +855,118 @@ func TestSoloATWSessionIsTraining(t *testing.T) {
 			ps.ATW.RunsCompleted, ps.ATW.BestDarts, atw.TargetCount)
 	}
 }
+
+// ------------------------------------------------------------- sequencing
+
+// Auto-swap follows the order the players were picked in, wraps round, and
+// steps over anyone who can no longer throw.
+func TestX01NextThrowerFollowsTheSequence(t *testing.T) {
+	svc, ctx := newServices(t)
+	alice := mustCreate(t, svc, ctx, "Alice")
+	bob := mustCreate(t, svc, ctx, "Bob")
+	chris := mustCreate(t, svc, ctx, "Chris")
+
+	// Picked in the order Chris, Alice, Bob.
+	sess, err := svc.Games.StartX01(ctx, x01.DefaultConfig(101), []int64{chris.ID, alice.ID, bob.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AutoSwap() {
+		t.Fatal("auto-swap is on for a new game; it should default to off")
+	}
+
+	next := func(want player.Player) {
+		t.Helper()
+		got, ok := sess.NextThrower()
+		if !ok || got != want.ID {
+			t.Errorf("NextThrower = %d (%v), want %s", got, ok, want.Name)
+		}
+	}
+
+	next(chris) // nobody has thrown: first in sequence
+	if _, err := sess.Record(ctx, x01.VisitInput{PlayerID: chris.ID, Points: 20, Darts: 3}); err != nil {
+		t.Fatal(err)
+	}
+	next(alice)
+	// Out of turn is still allowed, and the sequence carries on from whoever
+	// actually threw.
+	if _, err := sess.Record(ctx, x01.VisitInput{PlayerID: bob.ID, Points: 20, Darts: 3}); err != nil {
+		t.Fatal(err)
+	}
+	next(chris) // wraps round
+
+	// Alice checks out and is skipped from then on.
+	if _, err := sess.Record(ctx, x01.VisitInput{PlayerID: alice.ID, Points: 101, Darts: 3, ConfirmCheckout: true}); err != nil {
+		t.Fatal(err)
+	}
+	next(bob)
+	if _, err := sess.Record(ctx, x01.VisitInput{PlayerID: chris.ID, Points: 20, Darts: 3}); err != nil {
+		t.Fatal(err)
+	}
+	next(bob)
+	if _, err := sess.Record(ctx, x01.VisitInput{PlayerID: bob.ID, Points: 20, Darts: 3}); err != nil {
+		t.Fatal(err)
+	}
+	next(chris)
+}
+
+// The setting belongs to the game, so a resumed game carries on as it was.
+func TestAutoSwapSurvivesResume(t *testing.T) {
+	svc, ctx := newServices(t)
+	alice := mustCreate(t, svc, ctx, "Alice")
+	bob := mustCreate(t, svc, ctx, "Bob")
+
+	x, err := svc.Games.StartX01(ctx, x01.DefaultConfig(501), []int64{bob.ID, alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := x.SetAutoSwap(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.Record(ctx, x01.VisitInput{PlayerID: bob.ID, Points: 60, Darts: 3}); err != nil {
+		t.Fatal(err)
+	}
+	rx, err := svc.Games.ResumeX01(ctx, x.GameID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rx.AutoSwap() {
+		t.Error("resumed X01 game lost its auto-swap setting")
+	}
+	if got, _ := rx.NextThrower(); got != alice.ID {
+		t.Errorf("resumed X01 game is next on %d, want Alice", got)
+	}
+	if order := rx.Order(); order[0] != bob.ID || order[1] != alice.ID {
+		t.Errorf("resumed X01 order = %v, want Bob then Alice", order)
+	}
+
+	a, err := svc.Games.StartATW(ctx, []int64{alice.ID, bob.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.AutoSwap() {
+		t.Fatal("auto-swap is on for a new Around the World game")
+	}
+	if err := a.SetAutoSwap(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	atwThrow(t, a, ctx, alice.ID, "1")
+	ra, err := svc.Games.ResumeATW(ctx, a.GameID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ra.AutoSwap() {
+		t.Error("resumed Around the World game lost its auto-swap setting")
+	}
+	if got, _ := ra.NextThrower(); got != bob.ID {
+		t.Errorf("resumed Around the World game is next on %d, want Bob", got)
+	}
+
+	// And it can be turned back off.
+	if err := ra.SetAutoSwap(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := svc.Games.ResumeATW(ctx, a.GameID()); again.AutoSwap() {
+		t.Error("auto-swap was turned off but came back on after resuming")
+	}
+}
