@@ -70,6 +70,10 @@ type X01GameRecord struct {
 	CreatedAt  time.Time
 	FinishedAt *time.Time
 	Winner     *int64
+	// AutoSwap is whether the scoreboard moves to the next player in sequence
+	// after each visit. It is a scoring convenience, not a rule: the engine
+	// never sees it.
+	AutoSwap bool
 }
 
 // Restore turns the record back into a live engine by replaying its visits.
@@ -166,11 +170,12 @@ func (s *Store) LoadX01Game(ctx context.Context, gameID int64) (*X01GameRecord, 
 		startScore sql.NullInt64
 		doubleOut  sql.NullInt64
 		winner     sql.NullInt64
+		autoSwap   int
 	)
 	err := s.db.QueryRowContext(ctx, `
-SELECT mode, status, created_at, finished_at, start_score, double_out, winner_player_id
+SELECT mode, status, created_at, finished_at, start_score, double_out, winner_player_id, auto_swap
 FROM games WHERE id = ?`, gameID).
-		Scan(&mode, &rec.Status, &created, &finishedAt, &startScore, &doubleOut, &winner)
+		Scan(&mode, &rec.Status, &created, &finishedAt, &startScore, &doubleOut, &winner, &autoSwap)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: game %d", ErrNotFound, gameID)
 	}
@@ -185,6 +190,7 @@ FROM games WHERE id = ?`, gameID).
 		return nil, fmt.Errorf("game %d has an unreadable created date: %w", gameID, err)
 	}
 	rec.FinishedAt = parseNullTime(finishedAt)
+	rec.AutoSwap = autoSwap != 0
 	rec.Config = x01.Config{
 		StartScore: int(startScore.Int64),
 		DoubleOut:  doubleOut.Int64 != 0,
@@ -782,6 +788,20 @@ FROM game_results WHERE game_id = ?`, gameID)
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// SetAutoSwap records whether a game moves to the next player in sequence after
+// each visit. It applies to any mode, and can change at any point in the game.
+func (s *Store) SetAutoSwap(ctx context.Context, gameID int64, on bool) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE games SET auto_swap = ? WHERE id = ?`, boolToInt(on), gameID)
+	if err != nil {
+		return fmt.Errorf("set auto swap: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("%w: game %d", ErrNotFound, gameID)
+	}
+	return nil
 }
 
 // ReopenGame returns a finished game to in-progress and clears its outcome.

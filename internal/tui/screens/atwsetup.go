@@ -21,8 +21,12 @@ type ATWSetup struct {
 	cursor components.Cursor
 
 	players []player.Player
-	// selected preserves the order players were picked in.
+	// selected preserves the order players were picked in, which is the
+	// throwing sequence. It can be rearranged before the game starts.
 	selected []int64
+	// autoSwap moves the game on to the next player in sequence after every
+	// visit. It is off unless the operator asks for it.
+	autoSwap bool
 	loadErr  error
 }
 
@@ -55,6 +59,8 @@ func (s *ATWSetup) Hints() []components.KeyHint {
 		{Keys: "↑/↓", Desc: "move"},
 		{Keys: "space", Desc: "select/deselect"},
 		{Keys: "a", Desc: "select all"},
+		{Keys: "[/]", Desc: "move in order"},
+		{Keys: "s", Desc: "auto-swap"},
 		{Keys: "enter", Desc: "start game"},
 		{Keys: "esc", Desc: "back"},
 	}
@@ -82,6 +88,12 @@ func (s *ATWSetup) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		s.selectAll()
 	case "c":
 		s.selected = nil
+	case "[", "shift+up", "K":
+		s.reorder(-1)
+	case "]", "shift+down", "J":
+		s.reorder(1)
+	case "s":
+		s.autoSwap = !s.autoSwap
 	case "enter":
 		return s, s.start()
 	case "esc":
@@ -103,6 +115,15 @@ func (s *ATWSetup) toggle() {
 		}
 	}
 	s.selected = append(s.selected, id)
+}
+
+// reorder moves the highlighted player earlier or later in the throwing order.
+func (s *ATWSetup) reorder(delta int) {
+	i := s.cursor.Index()
+	if i < 0 || i >= len(s.players) {
+		return
+	}
+	moveInOrder(s.selected, s.players[i].ID, delta)
 }
 
 func (s *ATWSetup) selectAll() {
@@ -132,6 +153,13 @@ func (s *ATWSetup) start() tea.Cmd {
 	session, err := s.ctx.Services.Games.StartATW(s.ctx.Ctx, s.selected)
 	if err != nil {
 		return Fail(err)
+	}
+	if s.autoSwap {
+		// The game is already saved; failing to store the setting only means
+		// starting with it off, which the operator can put right with s.
+		if err := session.SetAutoSwap(s.ctx.Ctx, true); err != nil {
+			return tea.Batch(Replace(NewATWGame(s.ctx, session)), Fail(err))
+		}
 	}
 	return Replace(NewATWGame(s.ctx, session))
 }
@@ -186,6 +214,18 @@ func (s *ATWSetup) View(width, height int) string {
 	default:
 		b.WriteString(styles.SuccessText.Render(fmt.Sprintf(
 			"%d players selected — press enter to start.", len(s.selected))))
+		b.WriteString("\n")
+		b.WriteString(sequenceLine(s.selected, s.byID()))
+		b.WriteString("\n")
+		b.WriteString(autoSwapLine(s.autoSwap))
 	}
 	return b.String()
+}
+
+func (s *ATWSetup) byID() map[int64]player.Player {
+	out := make(map[int64]player.Player, len(s.players))
+	for _, p := range s.players {
+		out[p.ID] = p
+	}
+	return out
 }

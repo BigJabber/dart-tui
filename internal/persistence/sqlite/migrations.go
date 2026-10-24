@@ -240,6 +240,19 @@ CREATE TABLE atw_darts (
 );
 `,
 	},
+	{
+		Version: 3,
+		Name:    "automatic player swapping",
+		// A plain added column with a default, so every existing game reads as
+		// off — which is how they were played — and no table needs rebuilding.
+		SQL: `
+-- Whether the scoreboard moves on to the next player in sequence after each
+-- visit. It belongs to the game rather than to the application so a resumed
+-- game carries on the way it was being played. The sequence itself is the
+-- participants' position, which the games already record.
+ALTER TABLE games ADD COLUMN auto_swap INTEGER NOT NULL DEFAULT 0;
+`,
+	},
 }
 
 // SchemaVersion is the version a fresh database is created at.

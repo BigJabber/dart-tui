@@ -116,6 +116,7 @@ something to memorise.
 | `Enter` | Record the visit |
 | `y` / `n` | Answer the "finished on a double?" question |
 | `u` | **Undo the last visit** |
+| `s` | Turn [auto-swap](#auto-swap-and-throwing-order) on or off |
 | `f` | Finish the game and confirm the winner (a solo game just saves) |
 | `Esc` | Leave (the game is saved and can be resumed) |
 
@@ -140,8 +141,19 @@ something to memorise.
 | `Enter` | Record the visit |
 | `Backspace` | Rub out the last dart typed |
 | `u` | Undo the last visit |
+| `s` | Turn [auto-swap](#auto-swap-and-throwing-order) on or off |
 | `f` | Finish the game and confirm the winner |
 | `Esc` | Leave (the game is saved and can be resumed) |
+
+### Choosing players (501, 301, Around the World)
+
+| Key | Action |
+| --- | --- |
+| `Space` | Select or deselect the highlighted player |
+| `a` | Select everyone (or nobody) |
+| `[` `]` or `Shift+↑` `Shift+↓` | Move the highlighted player earlier or later in the throwing order |
+| `s` | Turn auto-swap on or off for this game (off by default) |
+| `Enter` | Start the game |
 
 ### Players
 
@@ -280,7 +292,8 @@ Both use the same engine and differ only in the starting score.
 ### Players throw in any order
 
 This is the most important thing about how this application works, and it is
-deliberate. **The game never advances to "the next player" by itself.**
+deliberate. **The game never advances to "the next player" by itself** —
+unless you turn on [auto-swap](#auto-swap-and-throwing-order) for that game.
 
 The office does not play strict alternating turns. One player may play their
 entire leg from 501 down to a checkout before anyone else has thrown a single
@@ -290,6 +303,28 @@ it is and keep typing scores for the same player.
 
 Selection order is recorded so the table has a stable order, but it never
 restricts who may throw.
+
+### Auto-swap and throwing order
+
+For games that *are* played in strict turns, **auto-swap** saves pressing `↓`
+after every visit. It is **off by default** and is available in 501, 301 and
+Around the World.
+
+- On the player-selection screen, the order players are ticked in is the
+  **throwing order**, shown as `Throwing order  Alice → Bob → Carol`. Highlight a
+  selected player and press `[` or `]` to move them earlier or later.
+- Press `s` on that screen to start the game with auto-swap on, or press `s`
+  at any time during the game to turn it on or off. The footer always shows the
+  current setting (`s auto-swap: on`).
+- With it on, after every visit — a score, a bust or a checkout — the highlight
+  moves to the next player in the throwing order, wrapping round to the first.
+  Anyone who has checked out (or completed their run, in Around the World) is
+  skipped.
+- It only moves the highlight; it never enforces the order. `↑`/`↓` still picks
+  anybody, and the sequence carries on from whoever actually threw.
+- Undo puts the highlight back on whoever threw the visit being taken back.
+- The setting is saved with the game, so a resumed game carries on the way it
+  was being played, starting with whoever is next in order.
 
 ### Recording a visit
 

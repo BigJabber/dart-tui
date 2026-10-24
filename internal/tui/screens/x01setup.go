@@ -21,8 +21,12 @@ type X01Setup struct {
 	cursor components.Cursor
 
 	players []player.Player
-	// selected preserves the order players were picked in.
+	// selected preserves the order players were picked in, which is the
+	// throwing sequence. It can be rearranged before the game starts.
 	selected []int64
+	// autoSwap moves the game on to the next player in sequence after every
+	// visit. It is off unless the operator asks for it.
+	autoSwap bool
 	loadErr  error
 }
 
@@ -55,6 +59,8 @@ func (s *X01Setup) Hints() []components.KeyHint {
 		{Keys: "↑/↓", Desc: "move"},
 		{Keys: "space", Desc: "select/deselect"},
 		{Keys: "a", Desc: "select all"},
+		{Keys: "[/]", Desc: "move in order"},
+		{Keys: "s", Desc: "auto-swap"},
 		{Keys: "enter", Desc: "start game"},
 		{Keys: "esc", Desc: "back"},
 	}
@@ -82,6 +88,12 @@ func (s *X01Setup) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		s.selectAll()
 	case "c":
 		s.selected = nil
+	case "[", "shift+up", "K":
+		s.reorder(-1)
+	case "]", "shift+down", "J":
+		s.reorder(1)
+	case "s":
+		s.autoSwap = !s.autoSwap
 	case "enter":
 		return s, s.start()
 	case "esc":
@@ -103,6 +115,15 @@ func (s *X01Setup) toggle() {
 		}
 	}
 	s.selected = append(s.selected, id)
+}
+
+// reorder moves the highlighted player earlier or later in the throwing order.
+func (s *X01Setup) reorder(delta int) {
+	i := s.cursor.Index()
+	if i < 0 || i >= len(s.players) {
+		return
+	}
+	moveInOrder(s.selected, s.players[i].ID, delta)
 }
 
 func (s *X01Setup) selectAll() {
@@ -132,6 +153,13 @@ func (s *X01Setup) start() tea.Cmd {
 	session, err := s.ctx.Services.Games.StartX01(s.ctx.Ctx, s.cfg, s.selected)
 	if err != nil {
 		return Fail(err)
+	}
+	if s.autoSwap {
+		// The game is already saved; failing to store the setting only means
+		// starting with it off, which the operator can put right with s.
+		if err := session.SetAutoSwap(s.ctx.Ctx, true); err != nil {
+			return tea.Batch(Replace(NewX01Game(s.ctx, session)), Fail(err))
+		}
 	}
 	return Replace(NewX01Game(s.ctx, session))
 }
@@ -189,6 +217,18 @@ func (s *X01Setup) View(width, height int) string {
 	default:
 		b.WriteString(styles.SuccessText.Render(fmt.Sprintf(
 			"%d players selected — press enter to start.", len(s.selected))))
+		b.WriteString("\n")
+		b.WriteString(sequenceLine(s.selected, s.byID()))
+		b.WriteString("\n")
+		b.WriteString(autoSwapLine(s.autoSwap))
 	}
 	return b.String()
+}
+
+func (s *X01Setup) byID() map[int64]player.Player {
+	out := make(map[int64]player.Player, len(s.players))
+	for _, p := range s.players {
+		out[p.ID] = p
+	}
+	return out
 }

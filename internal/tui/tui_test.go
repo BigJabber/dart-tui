@@ -1577,3 +1577,131 @@ func TestATWSpotlightDegradesOnAShortTerminal(t *testing.T) {
 	h.assertContains("Alice", "Next target")
 	h.assertContains("0 = miss")
 }
+
+// ------------------------------------------------------- auto-swap & order
+
+// Without asking for it, nothing changes: the game never moves on by itself.
+func TestX01AutoSwapIsOffByDefault(t *testing.T) {
+	h := newHarness(t)
+	h.addPlayer("Alice")
+	h.addPlayer("Bob")
+	h.press("s", "5", "space", "down", "space")
+	h.assertContains("Throwing order  Alice → Bob", "Auto-swap OFF")
+	h.press("enter")
+
+	h.typeText("60")
+	h.press("enter")
+	h.assertContains("Ready for Alice", "auto-swap: off")
+}
+
+// With auto-swap on, the scoreboard moves through the order picked on the
+// setup screen — after a bust as well as a score — and skips anybody out.
+func TestX01AutoSwapFollowsTheThrowingOrder(t *testing.T) {
+	h := newHarness(t)
+	h.addPlayer("Alice")
+	h.addPlayer("Bob")
+	h.addPlayer("Chris")
+	h.press("s", "3")
+	h.press("space", "down", "space", "down", "space")
+	// Move Chris to the front: he is highlighted, so two places earlier.
+	h.press("[", "[")
+	h.assertContains("Throwing order  Chris → Alice → Bob")
+	h.press("s")
+	h.assertContains("Auto-swap ON")
+	h.press("enter")
+
+	h.assertContains("Ready for Chris", "auto-swap: on")
+	h.typeText("100")
+	h.press("enter")
+	h.assertContains("Ready for Alice")
+
+	// The operator can still pick somebody out of turn, and the sequence
+	// carries on from whoever actually threw.
+	h.press("down") // Bob
+	h.typeText("100")
+	h.press("enter")
+	h.assertContains("Ready for Chris")
+
+	// Chris checks out from 201 and is skipped from then on.
+	h.typeText("100")
+	h.press("enter")
+	h.assertContains("Ready for Alice")
+	h.typeText("100")
+	h.press("enter")
+	h.assertContains("Ready for Bob")
+	h.press("up", "up") // back to Chris
+	h.assertContains("Ready for Chris")
+	h.typeText("101")
+	h.press("enter")
+	h.press("y")
+	h.assertContains("OUT", "Ready for Alice")
+
+	h.typeText("180") // 201 → 21
+	h.press("enter")
+	h.assertContains("Ready for Bob")
+	h.typeText("60")
+	h.press("enter")
+	h.assertContains("Ready for Alice")
+
+	// A bust ends the visit too.
+	h.typeText("30")
+	h.press("enter")
+	h.assertContains("BUST", "Ready for Bob")
+
+	// Undo goes back to whoever threw the visit being taken back.
+	h.press("u")
+	h.assertContains("Ready for Alice")
+}
+
+// The setting can be flipped mid-game, and a resumed game remembers it.
+func TestX01AutoSwapToggledMidGameSurvivesResume(t *testing.T) {
+	h := newHarness(t)
+	h.addPlayer("Alice")
+	h.addPlayer("Bob")
+	h.press("s", "5", "space", "down", "space", "enter")
+
+	h.typeText("60")
+	h.press("enter")
+	h.assertContains("Ready for Alice")
+	h.press("s")
+	// Turning it on moves straight to whoever is next.
+	h.assertContains("Auto-swap on", "Ready for Bob")
+
+	h.press("esc", "y")
+	h.press("r", "enter")
+	h.assertContains("auto-swap: on", "Ready for Bob")
+	h.typeText("60")
+	h.press("enter")
+	h.assertContains("Ready for Alice")
+
+	h.press("s")
+	h.assertContains("Auto-swap off")
+	h.typeText("60")
+	h.press("enter")
+	h.assertContains("Ready for Alice")
+}
+
+func TestATWAutoSwapFollowsTheThrowingOrder(t *testing.T) {
+	h := newHarness(t)
+	h.addPlayer("Alice")
+	h.addPlayer("Bob")
+	h.press("s", "a")
+	h.press("space", "down", "space")
+	h.press("]") // Bob is already last: nothing moves
+	h.press("up", "]")
+	h.assertContains("Throwing order  Bob → Alice")
+	h.press("s", "enter")
+
+	h.assertContains("Ready for Bob on 1")
+	h.typeText("1")
+	h.press("enter")
+	h.assertContains("Ready for Alice on 1")
+	h.typeText("1")
+	h.press("enter")
+	h.assertContains("Ready for Bob on 2")
+
+	h.press("s")
+	h.typeText("1")
+	h.press("enter")
+	h.assertContains("Ready for Bob on 3")
+}

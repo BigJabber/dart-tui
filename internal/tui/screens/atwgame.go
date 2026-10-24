@@ -28,8 +28,9 @@ const (
 // rather than a few long ones, and anything that needs confirming between darts
 // would be felt every single turn.
 //
-// Like the X01 screen it never advances to the next player by itself. The
-// operator picks whoever has walked up to the board.
+// Like the X01 screen it never advances to the next player by itself unless
+// auto-swap is turned on for the game; otherwise the operator picks whoever has
+// walked up to the board.
 type ATWGame struct {
 	ctx     Context
 	session *app.ATWSession
@@ -51,6 +52,7 @@ func NewATWGame(ctx Context, session *app.ATWSession) *ATWGame {
 	s := &ATWGame{ctx: ctx, session: session}
 	s.cursor.SetCount(len(session.Order()))
 	s.selectFirstActive()
+	s.autoAdvance()
 	return s
 }
 
@@ -85,6 +87,7 @@ func (s *ATWGame) Hints() []components.KeyHint {
 			{Keys: "↑/↓", Desc: "choose who threw"},
 			{Keys: "0-3", Desc: "enter their darts"},
 			{Keys: "u", Desc: "undo last visit"},
+			{Keys: "s", Desc: autoSwapHint(s.session.AutoSwap())},
 			{Keys: "f", Desc: "finish game"},
 			{Keys: "esc", Desc: "leave"},
 		}
@@ -135,6 +138,8 @@ func (s *ATWGame) updateIdle(key tea.KeyMsg) (Screen, tea.Cmd) {
 		s.moveCursor(1)
 	case "u":
 		return s, s.undo()
+	case "s":
+		return s, s.toggleAutoSwap()
 	case "f":
 		return s, Push(NewATWFinish(s.ctx, s.session))
 	case "enter", " ":
@@ -274,9 +279,33 @@ func (s *ATWGame) record() tea.Cmd {
 		// The cursor moves off the finished player, because they cannot throw
 		// again. The scoreboard keeps their row and their dart count.
 		s.selectFirstActive()
+		s.autoAdvance()
 		return Success(fmt.Sprintf("%s is round the board in %d darts.", name, darts))
 	}
+	s.autoAdvance()
 	return nil
+}
+
+// toggleAutoSwap turns automatic player swapping on or off for this game.
+// Turning it on moves straight to whoever is next in sequence.
+func (s *ATWGame) toggleAutoSwap() tea.Cmd {
+	on := !s.session.AutoSwap()
+	if err := s.session.SetAutoSwap(s.ctx.Ctx, on); err != nil {
+		return Fail(err)
+	}
+	s.autoAdvance()
+	return Status(autoSwapStatus(on))
+}
+
+// autoAdvance selects the next player in sequence when auto-swap is on. It is
+// only ever a selection: the operator can still pick anybody with ↑/↓.
+func (s *ATWGame) autoAdvance() {
+	if !s.session.AutoSwap() {
+		return
+	}
+	if id, ok := s.session.NextThrower(); ok {
+		s.selectPlayer(id)
+	}
 }
 
 // finishDarts is the dart count a player completed their run in.

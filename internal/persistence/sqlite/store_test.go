@@ -1403,3 +1403,10 @@ func TestATWLoadRefusesAnotherMode(t *testing.T) {
 		t.Errorf("error = %v, want ErrWrongMode", err)
 	}
 }
+
+func TestSetAutoSwapOnAMissingGameIsAnError(t *testing.T) {
+	s, ctx := newStore(t)
+	if err := s.SetAutoSwap(ctx, 999, true); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SetAutoSwap on a missing game = %v, want ErrNotFound", err)
+	}
+}

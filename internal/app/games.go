@@ -76,6 +76,9 @@ type X01Session struct {
 	game    *x01.Game
 	players map[int64]player.Player
 	order   []int64
+	// autoSwap moves the scoreboard on to the next player in sequence after
+	// each visit. See NextThrower.
+	autoSwap bool
 }
 
 // StartX01 creates a new 301 or 501 game for the selected players.
@@ -117,11 +120,12 @@ func (s *GameService) ResumeX01(ctx context.Context, gameID int64) (*X01Session,
 		return nil, err
 	}
 	return &X01Session{
-		store:   s.store,
-		gameID:  gameID,
-		game:    game,
-		players: players,
-		order:   rec.PlayerIDs,
+		store:    s.store,
+		gameID:   gameID,
+		game:     game,
+		players:  players,
+		order:    rec.PlayerIDs,
+		autoSwap: rec.AutoSwap,
 	}, nil
 }
 
@@ -134,6 +138,38 @@ func (s *X01Session) Game() *x01.Game { return s.game }
 // Order returns the players in selection order. It is display metadata: any
 // unfinished player may throw at any time.
 func (s *X01Session) Order() []int64 { return s.order }
+
+// AutoSwap reports whether the scoreboard moves on to the next player in
+// sequence after each visit.
+func (s *X01Session) AutoSwap() bool { return s.autoSwap }
+
+// SetAutoSwap turns automatic player swapping on or off and stores the choice
+// with the game, so a resumed game carries on the way it was being played.
+func (s *X01Session) SetAutoSwap(ctx context.Context, on bool) error {
+	if err := s.store.SetAutoSwap(ctx, s.gameID, on); err != nil {
+		return err
+	}
+	s.autoSwap = on
+	return nil
+}
+
+// NextThrower is who is next in sequence after whoever threw the most recent
+// visit, skipping anyone who has checked out. Before the first visit it is the
+// first player in the sequence.
+//
+// It is a suggestion for the scoreboard's selection, never a rule: the engine
+// still accepts a visit from any unfinished player.
+func (s *X01Session) NextThrower() (int64, bool) {
+	canThrow := func(id int64) bool {
+		st, ok := s.game.State(id)
+		return ok && !st.Finished
+	}
+	visits := s.game.Visits()
+	if len(visits) == 0 {
+		return firstInSequence(s.order, canThrow)
+	}
+	return nextInSequence(s.order, visits[len(visits)-1].PlayerID, canThrow)
+}
 
 // Player returns a participant's display details.
 func (s *X01Session) Player(id int64) player.Player {
@@ -212,6 +248,9 @@ type ATWSession struct {
 	game    *atw.Game
 	players map[int64]player.Player
 	order   []int64
+	// autoSwap moves the scoreboard on to the next player in sequence after
+	// each visit. See NextThrower.
+	autoSwap bool
 }
 
 // StartATW creates a new Around the World game for the selected players.
@@ -253,11 +292,12 @@ func (s *GameService) ResumeATW(ctx context.Context, gameID int64) (*ATWSession,
 		return nil, err
 	}
 	return &ATWSession{
-		store:   s.store,
-		gameID:  gameID,
-		game:    game,
-		players: players,
-		order:   rec.PlayerIDs,
+		store:    s.store,
+		gameID:   gameID,
+		game:     game,
+		players:  players,
+		order:    rec.PlayerIDs,
+		autoSwap: rec.AutoSwap,
 	}, nil
 }
 
@@ -270,6 +310,35 @@ func (s *ATWSession) Game() *atw.Game { return s.game }
 // Order returns the players in selection order. It is display metadata: any
 // unfinished player may throw at any time.
 func (s *ATWSession) Order() []int64 { return s.order }
+
+// AutoSwap reports whether the scoreboard moves on to the next player in
+// sequence after each visit.
+func (s *ATWSession) AutoSwap() bool { return s.autoSwap }
+
+// SetAutoSwap turns automatic player swapping on or off and stores the choice
+// with the game.
+func (s *ATWSession) SetAutoSwap(ctx context.Context, on bool) error {
+	if err := s.store.SetAutoSwap(ctx, s.gameID, on); err != nil {
+		return err
+	}
+	s.autoSwap = on
+	return nil
+}
+
+// NextThrower is who is next in sequence after whoever threw the most recent
+// visit, skipping anyone who has completed their run. Before the first visit it
+// is the first player in the sequence.
+func (s *ATWSession) NextThrower() (int64, bool) {
+	canThrow := func(id int64) bool {
+		st, ok := s.game.State(id)
+		return ok && !st.Finished
+	}
+	visits := s.game.Visits()
+	if len(visits) == 0 {
+		return firstInSequence(s.order, canThrow)
+	}
+	return nextInSequence(s.order, visits[len(visits)-1].PlayerID, canThrow)
+}
 
 // Player returns a participant's display details.
 func (s *ATWSession) Player(id int64) player.Player {
@@ -327,6 +396,42 @@ func (s *ATWSession) resync(ctx context.Context) {
 	if game, err := rec.Restore(); err == nil {
 		s.game = game
 	}
+}
+
+// ------------------------------------------------------------- sequencing
+
+// nextInSequence is the first player after `after` in the throwing order who
+// can still throw, wrapping round to the start. The last thrower is considered
+// last of all, so a player left on their own throws again.
+func nextInSequence(order []int64, after int64, canThrow func(int64) bool) (int64, bool) {
+	start := -1
+	for i, id := range order {
+		if id == after {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return firstInSequence(order, canThrow)
+	}
+	for step := 1; step <= len(order); step++ {
+		id := order[(start+step)%len(order)]
+		if canThrow(id) {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
+// firstInSequence is the earliest player in the throwing order who can still
+// throw.
+func firstInSequence(order []int64, canThrow func(int64) bool) (int64, bool) {
+	for _, id := range order {
+		if canThrow(id) {
+			return id, true
+		}
+	}
+	return 0, false
 }
 
 // --------------------------------------------------------- cricket sessions
